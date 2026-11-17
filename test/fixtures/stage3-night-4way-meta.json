@@ -1,0 +1,16 @@
+{
+  "leaveDate": "2026-11-30",
+  "requesterId": "anise",
+  "alsoTakeSentences": [
+    "Dr Cedar also takes Dr Dale's Clinic Beta on Mon, 14 Dec.",
+    "Dr Dale also takes Dr Elder's Clinic Beta on Mon, 21 Dec.",
+    "Dr Elder also takes your Clinic Beta on Mon, 28 Dec."
+  ],
+  "chainStaff": [
+    "anise",
+    "cedar",
+    "dale",
+    "elder"
+  ],
+  "optionIndex": 1
+}

@@ -1,0 +1,272 @@
+{
+  "leave": [
+    "2026-12-04",
+    "2026-12-05",
+    "2026-12-06"
+  ],
+  "plans": [
+    {
+      "block": 3,
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "hart",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "hart",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "hart",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "block": 2,
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "block": 2,
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "block": 2,
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "block": 2,
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "hart",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "hart",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "hart",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "hart",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "hart",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "hart",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "hart"
+      ]
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ]
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ]
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ]
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    },
+    {
+      "people": [
+        "rowan",
+        "ellis"
+      ],
+      "alert": "Would exceed 72 hours in 7 days",
+      "total": 75,
+      "limit": 72
+    }
+  ]
+}

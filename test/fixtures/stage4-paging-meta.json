@@ -1,0 +1,10 @@
+{
+  "leaveDate": "2026-11-09",
+  "firstPageDirect": 50,
+  "firstPageThree": 10,
+  "morePlanSizes": [
+    2,
+    3
+  ],
+  "truncated": true
+}

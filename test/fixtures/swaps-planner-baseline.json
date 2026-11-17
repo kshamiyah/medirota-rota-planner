@@ -1,0 +1,387 @@
+{
+  "generatedFrom": "run generate-planner-baseline.ts at commit 9237d57",
+  "scenarios": [
+    {
+      "name": "sample-first-import",
+      "planner": {
+        "fixed": [
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-02",
+            "shift": "Night",
+            "place": "Nights CT",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "2",
+            "date": "2026-11-02",
+            "shift": "Long Day",
+            "place": "Delivery Suite",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-03",
+            "shift": "Night",
+            "place": "Nights CT",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          }
+        ],
+        "unavailability": [
+          {
+            "mediRotaId": "2",
+            "date": "2026-11-03",
+            "kind": "other",
+            "reason": "PROMPT Training",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-04",
+            "kind": "nonWorking",
+            "reason": "Zero Day",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-06",
+            "kind": "leave",
+            "reason": "Leave",
+            "source": "medirota"
+          }
+        ],
+        "profile": {
+          "name": "My department",
+          "groups": [
+            "FY2",
+            "GPVTS",
+            "ST1"
+          ],
+          "roles": [
+            "Delivery Suite",
+            "Elective C-Sections",
+            "MAU CT",
+            "Nights CT"
+          ],
+          "shiftTypes": [
+            {
+              "name": "Long Day",
+              "start": "08:00",
+              "end": "20:30"
+            },
+            {
+              "name": "Night",
+              "start": "20:00",
+              "end": "08:30"
+            },
+            {
+              "name": "Normal working day",
+              "start": "08:00",
+              "end": "17:30"
+            }
+          ],
+          "staff": [
+            {
+              "mediRotaId": "1",
+              "name": "Piper Example",
+              "grade": "ST1",
+              "locum": false
+            },
+            {
+              "mediRotaId": "2",
+              "name": "Quinn Sample",
+              "grade": "GPVTS",
+              "locum": false
+            },
+            {
+              "mediRotaId": "3",
+              "name": "Riley Locum",
+              "locum": true
+            },
+            {
+              "mediRotaId": "4",
+              "name": "Empty Roster",
+              "grade": "FY2",
+              "locum": false
+            }
+          ],
+          "demandCount": 4,
+          "ruleCount": 0
+        }
+      }
+    },
+    {
+      "name": "sample-reimport",
+      "planner": {
+        "fixed": [
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-02",
+            "shift": "Night",
+            "place": "Nights CT",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "2",
+            "date": "2026-11-02",
+            "shift": "Long Day",
+            "place": "Delivery Suite",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-03",
+            "shift": "Night",
+            "place": "Nights CT",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          }
+        ],
+        "unavailability": [
+          {
+            "mediRotaId": "2",
+            "date": "2026-11-03",
+            "kind": "other",
+            "reason": "PROMPT Training",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-04",
+            "kind": "nonWorking",
+            "reason": "Zero Day",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-06",
+            "kind": "leave",
+            "reason": "Leave",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-07",
+            "kind": "leave",
+            "reason": "Wedding"
+          }
+        ],
+        "profile": {
+          "name": "My department",
+          "groups": [
+            "FY2",
+            "GPVTS",
+            "ST1"
+          ],
+          "roles": [
+            "Delivery Suite",
+            "Elective C-Sections",
+            "MAU CT",
+            "Nights CT"
+          ],
+          "shiftTypes": [
+            {
+              "name": "Long Day",
+              "start": "08:00",
+              "end": "20:30"
+            },
+            {
+              "name": "Night",
+              "start": "20:00",
+              "end": "08:30"
+            },
+            {
+              "name": "Normal working day",
+              "start": "08:00",
+              "end": "17:30"
+            }
+          ],
+          "staff": [
+            {
+              "mediRotaId": "1",
+              "name": "Piper Example",
+              "grade": "ST1",
+              "locum": false
+            },
+            {
+              "mediRotaId": "2",
+              "name": "Quinn Sample",
+              "grade": "GPVTS",
+              "locum": false
+            },
+            {
+              "mediRotaId": "3",
+              "name": "Riley Locum",
+              "locum": true
+            },
+            {
+              "mediRotaId": "4",
+              "name": "Empty Roster",
+              "grade": "FY2",
+              "locum": false
+            }
+          ],
+          "demandCount": 4,
+          "ruleCount": 0
+        }
+      }
+    },
+    {
+      "name": "keepDayJobs-true",
+      "planner": {
+        "fixed": [
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-02",
+            "shift": "Night",
+            "place": "Nights CT",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "2",
+            "date": "2026-11-02",
+            "shift": "Long Day",
+            "place": "Delivery Suite",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "3",
+            "date": "2026-11-02",
+            "shift": "Normal working day",
+            "place": "MAU CT",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-03",
+            "shift": "Night",
+            "place": "Nights CT",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "2",
+            "date": "2026-11-04",
+            "shift": "Normal working day",
+            "place": "Elective C-Sections",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-05",
+            "shift": "Normal working day",
+            "place": "Elective C-Sections",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "2",
+            "date": "2026-11-05",
+            "shift": "Normal working day",
+            "place": "Elective C-Sections",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "2",
+            "date": "2026-11-06",
+            "shift": "Normal working day",
+            "place": "Elective C-Sections",
+            "reason": "Booked in MediRota",
+            "source": "medirota"
+          }
+        ],
+        "unavailability": [
+          {
+            "mediRotaId": "2",
+            "date": "2026-11-03",
+            "kind": "other",
+            "reason": "PROMPT Training",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-04",
+            "kind": "nonWorking",
+            "reason": "Zero Day",
+            "source": "medirota"
+          },
+          {
+            "mediRotaId": "1",
+            "date": "2026-11-06",
+            "kind": "leave",
+            "reason": "Leave",
+            "source": "medirota"
+          }
+        ],
+        "profile": {
+          "name": "My department",
+          "groups": [
+            "FY2",
+            "GPVTS",
+            "ST1"
+          ],
+          "roles": [
+            "Delivery Suite",
+            "Elective C-Sections",
+            "MAU CT",
+            "Nights CT"
+          ],
+          "shiftTypes": [
+            {
+              "name": "Long Day",
+              "start": "08:00",
+              "end": "20:30"
+            },
+            {
+              "name": "Night",
+              "start": "20:00",
+              "end": "08:30"
+            },
+            {
+              "name": "Normal working day",
+              "start": "08:00",
+              "end": "17:30"
+            }
+          ],
+          "staff": [
+            {
+              "mediRotaId": "1",
+              "name": "Piper Example",
+              "grade": "ST1",
+              "locum": false
+            },
+            {
+              "mediRotaId": "2",
+              "name": "Quinn Sample",
+              "grade": "GPVTS",
+              "locum": false
+            },
+            {
+              "mediRotaId": "3",
+              "name": "Riley Locum",
+              "locum": true
+            },
+            {
+              "mediRotaId": "4",
+              "name": "Empty Roster",
+              "grade": "FY2",
+              "locum": false
+            }
+          ],
+          "demandCount": 4,
+          "ruleCount": 0
+        }
+      }
+    }
+  ]
+}
