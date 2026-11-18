@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { useWorkspace, update } from '../store';
-import { defaultSessionsSettings, gradeForStaff, SESSION_COLOURS, analyseSessions, sessionDateRange, type SessionComparisonGroup, type SessionTypeSetting, type SessionsSettings } from '../sessions';
+import { defaultSessionsSettings, gradeForStaff, analyseSessions, sessionDateRange, type SessionComparisonGroup, type SessionsSettings } from '../sessions';
 import { markPresetPersonOverride } from '../presets';
+import { SessionTypesEditor } from '../components/SessionTypesEditor';
 
 function gradeLabel(personGrade?: string): string { return personGrade?.trim() || 'No grade'; }
 function gradeKey(grade: string): string { return grade.trim().toLocaleLowerCase('en-GB'); }
@@ -23,12 +24,6 @@ export function SessionSettingsPanel() {
     workspace.sessions ??= defaultSessionsSettings(workspace.profile);
     mutate(workspace.sessions, workspace);
   });
-  const addType = () => save(value => {
-    const id = `session-custom-${Date.now()}`;
-    value.types.push({ id, name: 'New session type', colour: 1, kind: 'day', placeIds: [] });
-    value.ratios[id] = Object.fromEntries(value.groups.map(group => [group.id, 1]));
-  });
-  const removeType = (id: string) => save(value => { value.types = value.types.filter(type => type.id !== id); delete value.ratios[id]; });
   const addGroup = () => save(value => {
     const id = `session-group-custom-${Date.now()}`;
     value.groups.push({ id, name: 'New group', grades: [] });
@@ -57,13 +52,7 @@ export function SessionSettingsPanel() {
     for (const subgroup of group.subGroups ?? []) subgroup.grades = subgroup.grades.filter(item => gradeKey(item) !== gradeKey(grade));
     if (checked) group.subGroups?.find(subgroup => subgroup.id === subGroupId)?.grades.push(grade);
   });
-  const types = settings.types;
   const rootPlaces = ws.profile.roles.filter(role => !role.parentId);
-  const mapPlace = (type: SessionTypeSetting, placeId: string, checked: boolean) => save(value => {
-    if (checked) for (const item of value.types) item.placeIds = item.placeIds.filter(id => id !== placeId);
-    const target = value.types.find(item => item.id === type.id)!;
-    target.placeIds = checked ? [...target.placeIds, placeId] : target.placeIds.filter(id => id !== placeId);
-  });
   const ambiguousDoctors = ws.profile.staff.filter(person => gradeForStaff(person, ws.profile)?.includes('/') && settings.groups.some(group => group.subGroups?.length && group.grades.some(grade => gradeKey(grade) === gradeKey(gradeForStaff(person, ws.profile)!))));
   const consistency = settings.sameConsultants ?? { groupIds: [], typeIds: [] };
   const consistencyPeople = ws.profile.staff.filter(person => !person.locum && settings.groups.some(group => consistency.groupIds.includes(group.id) && group.grades.some(grade => gradeKey(grade) === gradeKey(gradeForStaff(person, ws.profile) ?? ''))));
@@ -90,16 +79,8 @@ export function SessionSettingsPanel() {
     </section>
 
     <section className="session-settings-block">
-      <div className="row session-settings-title"><div><h3>Session types</h3><p className="small muted">Each place maps to one session type. A consultant list follows its parent place.</p></div><button type="button" onClick={addType}>Add type</button></div>
-      <div className="session-type-list">{types.map(type => <article className="session-type-row" key={type.id}>
-        <div className="session-type-fields"><label className="field">Name<input value={type.name} onChange={event => save(value => { value.types.find(item => item.id === type.id)!.name = event.target.value; })} /></label>
-          <label className="field">Colour<select value={type.colour} onChange={event => save(value => { value.types.find(item => item.id === type.id)!.colour = Number(event.target.value); })}>{SESSION_COLOURS.map(colour => <option key={colour.number} value={colour.number}>{colour.label}</option>)}</select></label>
-          <label className="field">Kind<select value={type.kind} onChange={event => save(value => { value.types.find(item => item.id === type.id)!.kind = event.target.value as SessionTypeSetting['kind']; })}><option value="day">Day</option><option value="on-call">On-call</option></select></label>
-          <button type="button" className="link-button danger" onClick={() => removeType(type.id)}>Remove</button>
-        </div>
-      <div className="session-place-mapping"><span className="field-label">Mapped places</span><div className="session-place-options">{rootPlaces.map(place => <label key={place.id}><input type="checkbox" checked={type.placeIds.includes(place.id)} onChange={event => mapPlace(type, place.id, event.target.checked)} />{place.name}</label>)}</div></div>
-      <p className="small muted">{type.kind === 'on-call' ? 'On-call' : 'Day session'}</p>
-      </article>)}</div>
+      <div className="session-settings-title"><h3>Session types</h3><p className="small muted">A consultant list follows its parent place.</p></div>
+      <SessionTypesEditor settings={settings} places={rootPlaces.map(place => ({ id: place.id, name: place.name }))} onChange={next => save(value => { value.types = next.types; value.ratios = next.ratios; })} />
       <h4>Not counted yet</h4>{analysis?.unmapped.length ? <ul className="session-unmapped">{analysis.unmapped.map(item => <li key={item.activity}><span>{item.activity}</span><span>{item.count} {item.count === 1 ? 'booking' : 'bookings'}</span></li>)}</ul> : <p className="small muted">No unmapped activities in the imported range.</p>}
       {analysis?.ignored.length ? <p className="session-ignored small muted">Not counted: {analysis.ignored.map(item => `${item.activity} (${item.count})`).join(', ')}.</p> : null}
     </section>

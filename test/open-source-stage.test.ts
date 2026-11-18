@@ -230,6 +230,7 @@ describe('open-source role and presets', () => {
     for (const role of ['doctor', 'coordinator'] as const) {
       const workspace = madeUpWorkspace();
       if (role === 'coordinator') { workspace.role = 'coordinator'; delete workspace.me; }
+      expect(workspace.profile.roles.some(place => !(workspace.sessions?.types.some(type => type.placeIds.includes(place.id))))).toBe(true);
       const before = structuredClone(workspace);
       finishSetupWithoutEdits(workspace, role);
       expect(workspace).toEqual(before);

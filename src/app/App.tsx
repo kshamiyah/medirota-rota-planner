@@ -16,7 +16,7 @@ import { Sessions } from './pages/Sessions';
 import type { SettingsSection } from './pages/Settings';
 import { FairerRota } from './pages/FairerRota';
 import { SetupWizard } from './pages/SetupWizard';
-import { fetchFromMediRotaWizardStep, shouldShowSetupWizard, type SetupWizardStep } from './setupWizard';
+import { fetchFromMediRotaWizardStep, shouldOpenFetchTabSetup, shouldShowSetupWizard, type SetupWizardStep } from './setupWizard';
 
 export const SETUP_DONE_KEY = 'rota-planner.setup-wizard-done.v1';
 export function dismissedSetupWizard(): boolean { try { return localStorage.getItem(SETUP_DONE_KEY) === 'yes'; } catch { return false; } }
@@ -33,6 +33,7 @@ function hasImportedRota(workspace = getWorkspace()): boolean {
 export function App() {
   const ws = useWorkspace();
   const fetchFromMediRota = new URLSearchParams(location.search).get('fetchFromMediRota') === '1';
+  const [fetchTabNeedsSetup] = useState(() => fetchFromMediRota && shouldOpenFetchTabSetup(getWorkspace(), dismissedSetupWizard()));
   const [wizardMode, setWizardMode] = useState<'firstRun' | 'rerun' | null>(() => !fetchFromMediRota && !dismissedSetupWizard() && shouldShowSetupWizard(getWorkspace(), hasSavedWorkspace()) ? 'firstRun' : null);
   const [wizardInitialStep, setWizardInitialStep] = useState<SetupWizardStep>('role');
   const [wizardEpoch, setWizardEpoch] = useState(0);
@@ -40,14 +41,14 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('you');
   const fetchWizardOpened = useRef(false);
   useEffect(() => {
-    if (!fetchFromMediRota || dismissedSetupWizard() || fetchWizardOpened.current || !hasImportedRota(ws)) return;
+    if (!fetchFromMediRota || !fetchTabNeedsSetup || dismissedSetupWizard() || fetchWizardOpened.current || !hasImportedRota(ws)) return;
     fetchWizardOpened.current = true;
     // Setup is not dismissed here: treat this as first-time setup so Next saves on-screen suggestions.
     setWizardMode(current => current ?? 'firstRun');
     setWizardInitialStep(fetchFromMediRotaWizardStep(ws.role));
     setWizardEpoch(value => value + 1);
     setPage('setup');
-  }, [fetchFromMediRota, ws]);
+  }, [fetchFromMediRota, fetchTabNeedsSetup, ws]);
   const finishSetup = () => {
     try { localStorage.setItem(SETUP_DONE_KEY, 'yes'); } catch { /* in-memory setup remains available */ }
     setWizardMode(null); setPage('overview');
@@ -96,7 +97,7 @@ export function App() {
         {page === 'sessions' && <Sessions go={setPage} />}
         {page === 'fairer' && <FairerRota go={setPage} openSessions={() => { setSettingsSection('sessions'); setPage('settings'); }} />}
         {page === 'settings' && <SettingsPage go={setPage} initialSection={settingsSection} onSectionChange={setSettingsSection} onRunSetup={runSetupAgain} returnToSetup={wizardMode !== null ? () => setPage('setup') : undefined} />}
-        {page === 'import' && <Import go={setPage} />}
+        {page === 'import' && <Import go={setPage} showFetchDone={!fetchTabNeedsSetup} />}
         {page === 'shifts' && <Shifts />}
         {page === 'places' && <Places />}
         {page === 'staffing' && <Staffing />}

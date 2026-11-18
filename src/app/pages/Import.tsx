@@ -67,7 +67,7 @@ function stepsFor(plan: ImportPlan | null): Record<Step, boolean> {
 interface Files { person: PersonWeek[]; activity: ActivityWeek[]; errors: string[] }
 type Done = { result: ImportResult; dates: string } | { lists: number };
 
-export function Import({ go, embedded = false }: { go: (p: Page) => void; embedded?: boolean }) {
+export function Import({ go, embedded = false, showFetchDone = false }: { go: (p: Page) => void; embedded?: boolean; showFetchDone?: boolean }) {
   const ws = useWorkspace();
   const [files, setFiles] = useState<Files>({ person: [], activity: [], errors: [] });
   const [plan, setPlan] = useState<ImportPlan | null>(null);
@@ -179,6 +179,7 @@ export function Import({ go, embedded = false }: { go: (p: Page) => void; embedd
   const back = () => setStep(live[Math.max(0, at - 1)]);
   const firstTime = plan?.firstTime ?? (ws.profile.staff.length === 0 && ws.profile.roles.length === 0);
 
+  if (done && fetchMode && showFetchDone) return <section className="card fetch-tab-done" role="status"><h2>Import complete</h2><p>Done. Your other Rota Planner tab is up to date. You can close this one.</p><div className="row"><button type="button" className="primary" onClick={() => window.close()}>Close this tab</button><button type="button" onClick={() => go('overview')}>Stay here</button></div></section>;
   if (done && embedded) return null;
   if (done) return (<><PageHead title="Import from MediRota" /><DoneCard done={done} go={go} again={() => { setDone(null); reset(); }} /></>);
 
@@ -231,7 +232,7 @@ function FetchPanel(props: { mode: boolean; setMode: (v: boolean) => void; start
   const weeks = dates.length;
   return <section className="card"><h2>Fetch from MediRota</h2><p className="muted">Fetch the By person weeks open to your account, then check them in the usual import steps.</p>
     <div className="row"><a ref={props.bookmarkRef} href="#" draggable="true">Fetch from MediRota</a><button type="button" onClick={() => void navigator.clipboard?.writeText(props.bookmark).then(() => alert('Bookmark code copied.'))}>Copy bookmark code</button><button type="button" onClick={props.onFile}>Choose HTML or JSON bundle</button></div>
-    <p className="small muted">Drag the link to your bookmarks bar. The code opens this app in a new tab.</p><button type="button" className="ghost small" onClick={() => props.setMode(!props.mode)}>{props.mode ? 'Hide fetch form' : 'Show fetch form'}</button>
+    <p className="small muted">Drag the link to your bookmarks bar. It reuses the Rota Planner tab when it is still open.</p><p className="small muted">Dragged this before 17 November 2026? Drag it again to get the newer version.</p><button type="button" className="ghost small" onClick={() => props.setMode(!props.mode)}>{props.mode ? 'Hide fetch form' : 'Show fetch form'}</button>
     {props.mode && <div className="row" style={{ marginTop: 12 }}><label>Start week <input type="date" value={props.start} onChange={e => props.setStart(snapToMonday(e.target.value))} /><small className="small muted">{formatWeekOf(props.start)}</small></label><label>End week <input type="date" value={props.end} onChange={e => props.setEnd(snapToMonday(e.target.value))} /><small className="small muted">{formatWeekOf(props.end)}</small></label><span>{weeks > 0 ? `${weeks} ${weeks === 1 ? 'week' : 'weeks'}` : 'Choose an end week'}</span>{props.progress.active ? <button type="button" onClick={props.onStop}>Stop</button> : <button type="button" className="primary" onClick={props.onFetch}>Fetch</button>}</div>}
     {props.showBookmarkChanged && <p className="small muted">This bookmark has changed. Remove the old one and add it again to fetch By activity weeks too.</p>}
     {props.progress.active && <p role="status">Fetched {props.progress.weeks.length} of {props.progress.expected} weeks</p>}{props.message && <div className="notice warn">{props.message}</div>}

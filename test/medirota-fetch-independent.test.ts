@@ -143,29 +143,35 @@ describe('app URL', () => {
 });
 
 describe('generated bookmark', () => {
-  async function boot(pathname = '/dept/rota/2026-11-02/people/', targetAppUrl = appUrl) {
+  async function boot(pathname = '/dept/rota/2026-11-02/people/', targetAppUrl = appUrl, deferFetch = false) {
     const fetches: string[] = [];
     const posted: { type: string }[] = [];
     const postTargets: string[] = [];
     const openedUrls: string[] = [];
+    const openedNames: string[] = [];
     const prompts: string[] = [];
     const blobs: string[] = [];
+    const requestSignals: AbortSignal[] = [];
+    const pendingFetches: (() => void)[] = [];
     let fallback: (() => void) | undefined;
     const listeners: ((event: { origin: string; source: unknown; data: { channel?: string; type?: string; dates?: string[] } }) => Promise<void> | void)[] = [];
+    const activeListeners = new Set<(typeof listeners)[number]>();
     const opened = { postMessage(message: { type: string }, targetOrigin: string) { posted.push(message); postTargets.push(targetOrigin); } };
     const sandbox = {
       location: { pathname },
-      window: { open: (url: string) => { openedUrls.push(url); return opened; } },
+      window: { open: (url: string, name: string) => { openedUrls.push(url); openedNames.push(name); return opened; } },
       alert() {},
       prompt(label: string) { prompts.push(label); return prompts.length === 1 ? '2026-11-02' : '2026-11-09'; },
-      fetch: async (url: string) => { fetches.push(String(url)); return { status: 200, text: async () => '<html></html>' }; },
+      fetch: async (url: string, options?: { signal?: AbortSignal }) => { fetches.push(String(url)); if (options?.signal) requestSignals.push(options.signal); return new Promise<{ status: number; text: () => Promise<string> }>(resolve => { pendingFetches.push(() => resolve({ status: 200, text: async () => '<html></html>' })); if (!deferFetch) pendingFetches.at(-1)?.(); }); },
       setTimeout(fn: () => void, ms: number) {
         if (ms >= 10_000) { fallback = fn; return 1; }
         queueMicrotask(fn);
         return 2;
       },
       clearTimeout() {},
-      addEventListener(_type: string, fn: (typeof listeners)[number]) { listeners.push(fn); },
+      addEventListener(_type: string, fn: (typeof listeners)[number]) { listeners.push(fn); activeListeners.add(fn); },
+      removeEventListener(_type: string, fn: (typeof listeners)[number]) { activeListeners.delete(fn); },
+      AbortController,
       document: { createElement: () => ({ click() {}, remove() {} }), body: { append() {} } },
       Blob: class { constructor(parts: string[]) { blobs.push(parts[0]); } },
       URL: class URL {
@@ -177,9 +183,10 @@ describe('generated bookmark', () => {
       JSON, Date, Promise, Array, Object, String, RegExp,
     };
     vm.createContext(sandbox);
-    await vm.runInContext(makeFetchBookmark(targetAppUrl).slice('javascript:'.length), sandbox);
-    const send = (data: { type: string; dates?: string[] }, origin = appOrigin, source: unknown = opened) => listeners[0]?.({ origin, source, data: { channel: FETCH_CHANNEL, ...data } });
-    return { fetches, posted, postTargets, openedUrls, prompts, blobs, send, fireFallback: () => fallback?.() };
+    const click = async () => vm.runInContext(makeFetchBookmark(targetAppUrl).slice('javascript:'.length), sandbox);
+    await click();
+    const send = (data: { type: string; dates?: string[] }, origin = appOrigin, eventSource: unknown = opened) => [...activeListeners][0]?.({ origin, source: eventSource, data: { channel: FETCH_CHANNEL, ...data } });
+    return { fetches, posted, postTargets, openedUrls, openedNames, prompts, blobs, requestSignals, send, click, activeListenerCount: () => activeListeners.size, releaseFetches: () => pendingFetches.splice(0).forEach(resolve => resolve()), fireFallback: () => fallback?.() };
   }
 
   it('answers the first ready with one hello, then sends the weeks and done', async () => {
@@ -203,11 +210,34 @@ describe('generated bookmark', () => {
     const hostedOrigin = new URL(hostedUrl).origin;
     const bookmark = await boot('/dept/rota/2026-11-02/people/', hostedUrl);
     expect(bookmark.openedUrls).toEqual([`${hostedUrl}?fetchFromMediRota=1`]);
+    expect(bookmark.openedNames).toEqual(['rota-planner-fetch']);
     await bookmark.send({ type: 'rota-planner-ready' }, 'https://evil.test');
     expect(bookmark.posted).toEqual([]);
     await bookmark.send({ type: 'rota-planner-ready' }, hostedOrigin);
     expect(bookmark.posted.map(message => message.type)).toEqual(['hello']);
     expect(bookmark.postTargets).toEqual([hostedOrigin]);
+  });
+
+  it('reuses one named fetch tab and one listener across two bookmark clicks', async () => {
+    const bookmark = await boot();
+    await bookmark.click();
+    expect(bookmark.openedNames).toEqual(['rota-planner-fetch', 'rota-planner-fetch']);
+    expect(bookmark.activeListenerCount()).toBe(1);
+    await bookmark.send({ type: 'rota-planner-ready' });
+    await bookmark.send({ type: 'fetch', dates: ['2026-11-02'] });
+    expect(bookmark.fetches).toEqual(['/dept/rota/2026-11-02/people/', '/dept/rota/2026-11-02/']);
+    expect(bookmark.posted.map(message => message.type)).toEqual(['hello', 'week', 'done']);
+  });
+
+  it('aborts a previous fetch when the bookmark is clicked again', async () => {
+    const bookmark = await boot('/dept/rota/2026-11-02/people/', appUrl, true);
+    await bookmark.send({ type: 'rota-planner-ready' });
+    const running = bookmark.send({ type: 'fetch', dates: ['2026-11-02'] });
+    await Promise.resolve();
+    await bookmark.click();
+    expect(bookmark.requestSignals[0]?.aborted).toBe(true);
+    bookmark.releaseFetches();
+    await running;
   });
 
   it('refuses a non-Monday, a non-date and 61 dates before fetching', async () => {

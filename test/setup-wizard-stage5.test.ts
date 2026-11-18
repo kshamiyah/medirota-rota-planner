@@ -8,7 +8,7 @@ import {
   emptyWorkspace, getWorkspace, replaceWorkspace, update, writeWorkspaceAsOtherTab, adoptWorkspaceFromStorage,
   WORKSPACE_STORAGE_KEY,
 } from '../src/app/store';
-import { canAdvanceSetupWizard, fetchFromMediRotaWizardStep, nextSetupWizardStep, setWizardDoctor, setWorkspaceRole, shouldShowSetupWizard } from '../src/app/setupWizard';
+import { canAdvanceSetupWizard, fetchFromMediRotaWizardStep, nextSetupWizardStep, setWizardDoctor, setWorkspaceRole, shouldOpenFetchTabSetup, shouldShowSetupWizard } from '../src/app/setupWizard';
 
 beforeEach(() => { clearPolyfillStorage(); replaceWorkspace(emptyWorkspace()); });
 
@@ -19,6 +19,42 @@ describe('open-source setup wizard', () => {
     expect(shouldShowSetupWizard(empty, true)).toBe(false);
     empty.profile.staff.push({ id: 'rowan', name: 'Dr Rowan', groupIds: [], fte: 1 });
     expect(shouldShowSetupWizard(empty, false)).toBe(false);
+  });
+  it('continues fetch-tab setup when a role is already saved but there is still no rota', () => {
+    for (const role of ['doctor', 'coordinator'] as const) {
+      const workspace = emptyWorkspace();
+      setWorkspaceRole(workspace, role);
+      expect(shouldOpenFetchTabSetup(workspace, false), role).toBe(true);
+      expect(fetchFromMediRotaWizardStep(workspace.role)).toBe(role === 'coordinator' ? 'types' : 'doctor');
+      expect(shouldOpenFetchTabSetup(workspace, true), `${role} done`).toBe(false);
+    }
+    // Real doctor Next on the role step may write localStorage without setting role yet.
+    const roleStepSaved = emptyWorkspace();
+    expect(shouldOpenFetchTabSetup(roleStepSaved, false)).toBe(true);
+    expect(fetchFromMediRotaWizardStep(roleStepSaved.role)).toBe('doctor');
+  });
+  it('continues fetch-tab setup from a completely empty browser', () => {
+    const fresh = emptyWorkspace();
+    expect(shouldOpenFetchTabSetup(fresh, false)).toBe(true);
+    expect(shouldOpenFetchTabSetup(fresh, true)).toBe(false);
+  });
+  it('keeps an already set-up saved workspace on the fetch screen without a completion key', () => {
+    const workspace = emptyWorkspace();
+    workspace.role = 'doctor';
+    workspace.me = 'rowan';
+    workspace.profile.staff.push({ id: 'rowan', name: 'Dr Rowan', groupIds: [], fte: 1 });
+    workspace.profile.roles.push({ id: 'maple', name: 'Maple Ward' });
+    workspace.sessions = defaultSessionsSettings(workspace.profile);
+    workspace.swapFinder = { settings: structuredClone(DEFAULT_SWAP_SETTINGS), snapshot: { days: {}, importedAt: { '2026-11-16': '2026-11-17T10:00:00Z' } } };
+    const before = structuredClone(workspace);
+    expect(shouldOpenFetchTabSetup(workspace, false)).toBe(false);
+    expect(shouldOpenFetchTabSetup(workspace, true)).toBe(false);
+    expect(workspace).toEqual(before);
+  });
+  it('shows Done when the setup completion key is set, even with no rota yet', () => {
+    const workspace = emptyWorkspace();
+    setWorkspaceRole(workspace, 'doctor');
+    expect(shouldOpenFetchTabSetup(workspace, true)).toBe(false);
   });
   it('has neutral, empty department session defaults', () => {
     const settings = defaultSessionsSettings(emptyWorkspace().profile);

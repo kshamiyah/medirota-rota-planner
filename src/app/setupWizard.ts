@@ -9,6 +9,19 @@ export function shouldShowSetupWizard(workspace: Workspace, hasSavedWorkspace: b
   return !hasSavedWorkspace && workspace.profile.staff.length === 0 && Object.keys(workspace.swapFinder?.snapshot.importedAt ?? {}).length === 0;
 }
 
+function workspaceHasNoRotaYet(workspace: Workspace): boolean {
+  return workspace.profile.staff.length === 0 && Object.keys(workspace.swapFinder?.snapshot.importedAt ?? {}).length === 0;
+}
+
+/**
+ * Decide on fetch-tab load, before any import lands: continue setup when it isn't
+ * done or dismissed and this workspace still has no rota (no staff, no imported
+ * weeks). A saved role alone must not count as finished setup.
+ */
+export function shouldOpenFetchTabSetup(workspace: Workspace, dismissed: boolean): boolean {
+  return !dismissed && workspaceHasNoRotaYet(workspace);
+}
+
 export function setWorkspaceRole(workspace: Workspace, role: 'doctor' | 'coordinator'): void {
   workspace.role = role;
   if (role === 'coordinator') delete workspace.me;

@@ -23,7 +23,7 @@ describe('hosted link base path', () => {
     expect(appUrl('http://127.0.0.1:5180', '/')).toBe('http://127.0.0.1:5180/');
     const code = makeFetchBookmark(appUrl('http://127.0.0.1:5180', '/'));
     expect(code).toContain('"http://127.0.0.1:5180/"');
-    expect(code).toContain("window.open(app+'?fetchFromMediRota=1'");
+    expect(code).toContain("window.open(app+'?fetchFromMediRota=1','rota-planner-fetch'");
   });
 
   it('keeps no absolute /... paths to app-served files in index.html or src/', () => {
@@ -52,6 +52,6 @@ describe('hosted link MediRota continue steps', () => {
     expect(code).toContain(`channel='${FETCH_CHANNEL}'`);
     expect(code).toContain('event.origin!==appOrigin||event.source!==tab||event.data?.channel!==channel');
     expect(code).toContain('"https://kshamiyah.github.io/medirota-rota-planner/"');
-    expect(code).toContain("window.open(app+'?fetchFromMediRota=1'");
+    expect(code).toContain("window.open(app+'?fetchFromMediRota=1','rota-planner-fetch'");
   });
 });

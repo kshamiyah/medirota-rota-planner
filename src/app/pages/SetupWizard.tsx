@@ -4,6 +4,7 @@ import { defaultSessionsSettings, gradeForStaff, SESSION_COLOURS, type SessionsS
 import { update, useWorkspace } from '../store';
 import { Import } from './Import';
 import { SessionRatioTable } from './SessionSettings';
+import { SessionTypesEditor } from '../components/SessionTypesEditor';
 import type { Page } from './types';
 import { applyWizardDoctorChoice, canAdvanceSetupWizard, setWorkspaceRole, type SetupWizardStep, type WizardAction } from '../setupWizard';
 
@@ -60,6 +61,7 @@ export function SetupWizard({ mode, go, onFinish, initialStep = 'role' }: { mode
   const [roleDraft, setRoleDraft] = useState<'doctor' | 'coordinator' | undefined>(mode === 'firstRun' ? ws.role : ws.role ?? 'doctor');
   const [doctorDraft, setDoctorDraft] = useState(ws.me ?? '');
   const [settingsDraft, setSettingsDraft] = useState<SessionsSettings>(() => wizardSettingsDraft(ws));
+  const [unsortedCount, setUnsortedCount] = useState(0);
   const [minimumDraft, setMinimumDraft] = useState(() => ({ weekdays: [...(ws.swapFinder?.settings.minDoctors ?? [0,0,0,0,0,0,0])], bankHoliday: ws.swapFinder?.settings.minDoctorsBankHoliday ?? 0 }));
   const importedAt = ws.swapFinder?.snapshot.importedAt ?? {};
   const hasRota = Object.keys(importedAt).length > 0;
@@ -75,6 +77,7 @@ export function SetupWizard({ mode, go, onFinish, initialStep = 'role' }: { mode
     return people;
   }, [ws.profile, query]);
   const places = ws.profile.roles.filter(role => !role.parentId);
+  const isSuggestedSessionDraft = !ws.sessions?.types.length && !ws.sessions?.groups.length;
   const grades = [...new Set(ws.profile.staff.map(person => gradeForStaff(person, ws.profile)).filter((grade): grade is string => !!grade))];
   const groups = settingsDraft.groups;
   const steps = isCoordinator ? ['role','rota','types','groups','ratios','minimums'] as SetupWizardStep[] : ['role','rota','doctor','types','groups','ratios','minimums'] as SetupWizardStep[];
@@ -95,28 +98,13 @@ export function SetupWizard({ mode, go, onFinish, initialStep = 'role' }: { mode
     const index = visibleSteps.indexOf(step);
     setStep(action === 'back' ? visibleSteps[Math.max(0, index - 1)] : visibleSteps[index + 1] ?? 'finish');
   };
-  const patchPlace = (placeId: string, typeName: string, kind: 'day'|'on-call') => setSettingsDraft(current => {
-    const next = structuredClone(current); next.types = next.types.filter(type => !type.placeIds.includes(placeId));
-    if (typeName !== 'Not counted') {
-      let type = next.types.find(item => item.name === typeName);
-      if (!type) { const colour = SESSION_COLOURS[next.types.length % SESSION_COLOURS.length].number; type = { id: `session-${Date.now()}-${next.types.length}`, name: typeName, colour, kind, placeIds: [] }; next.types.push(type); }
-      type.placeIds.push(placeId); type.kind = kind;
-    }
-    return next;
-  });
   const changeRatio = (typeId: string, groupId: string, value: number) => setSettingsDraft(current => { const next = structuredClone(current); next.ratios[typeId] ??= {}; next.ratios[typeId][groupId] = value; return next; });
   if (step === 'finish') return <div className="setup-wizard-page"><section className="setup-wizard-card"><p className="eyebrow">Setup complete</p><h1>You're set up</h1><p>Your setup is saved in this browser. You can import rota weeks later.</p><button className="primary" type="button" onClick={onFinish}>Go to Overview</button></section></div>;
   return <div className="setup-wizard-page"><section className="setup-wizard-card" aria-labelledby="setup-wizard-title"><p className="eyebrow">{mode === 'firstRun' ? 'First-time setup' : 'Setup'}</p><div className="setup-wizard-progress"><span>Step {stepNumber} of {visibleSteps.length}</span><span>{titles[step]}</span></div><h1 id="setup-wizard-title">{titles[step]}</h1>
     {step === 'role' && <fieldset className="setup-wizard-step"><legend>Choose your role</legend><label className="setup-doctor-option"><input type="radio" name="role" checked={roleDraft === 'doctor'} onChange={() => setRoleDraft('doctor')} /><span>A doctor on this rota</span></label><label className="setup-doctor-option"><input type="radio" name="role" checked={roleDraft === 'coordinator'} onChange={() => setRoleDraft('coordinator')} /><span>I make the rota (coordinator)</span></label></fieldset>}
     {step === 'rota' && <div className="setup-wizard-step"><ol className="setup-rota-instructions"><li>Add the bookmark below to your bookmarks bar.</li><li>Open MediRota and sign in.</li><li>Choose a By person week and click the bookmark.</li><li>Come back here to review and import the weeks.</li></ol><p className="small muted">Optional: also fetch lists by activity to see consultants.</p>{importedWeeksSummary(importedAt, ws.profile.staff.length) && <p className="setup-import-summary" role="status">{importedWeeksSummary(importedAt, ws.profile.staff.length)}</p>}{!hasRota && <p className="small muted">You can skip this step and import your rota later.</p>}<Import go={go} embedded /></div>}
     {step === 'doctor' && <div className="setup-wizard-step">{!hasRota ? <p>Import your rota first to choose yourself.</p> : <><label className="field">Find a doctor<input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Type a name or grade" /></label><div className="setup-doctor-groups">{doctors.map(person => <label className="setup-doctor-option" key={person.id}><input type="radio" name="setup-doctor" checked={doctorDraft === person.id} onChange={() => setDoctorDraft(person.id)} /><span>{person.name}<small>{gradeForStaff(person, ws.profile) ?? 'No grade'}</small></span></label>)}</div></>}</div>}
-    {step === 'types' && <div className="setup-wizard-step">{!hasRota ? <p>Import your rota first to sort places. You can do this later in Settings.</p> : <>{settingsDraft.types.map(type => <div className="setup-place-row" key={type.id}><label className="field">Session type name<input value={type.name} onChange={event => setSettingsDraft(current => ({ ...current, types: current.types.map(item => item.id === type.id ? { ...item, name: event.target.value } : item) }))} /></label><label className="field">Colour<select value={type.colour} onChange={event => setSettingsDraft(current => ({ ...current, types: current.types.map(item => item.id === type.id ? { ...item, colour: Number(event.target.value) } : item) }))}>{SESSION_COLOURS.map(colour => <option key={colour.number} value={colour.number}>{colour.label}</option>)}</select></label></div>)}{places.map(place => {
-      const suggested = suggestSessionType(place.name);
-      const existing = settingsDraft.types.find(type => type.placeIds.includes(place.id));
-      const typeName = existing?.name ?? suggested;
-      const kind = existing?.kind ?? suggestSessionKind(place.name, ws);
-      return <div className="setup-place-row" key={place.id}><b>{place.name}</b>{typeName === suggested && <small>Suggested</small>}<label className="field">Session type<select value={typeName} onChange={event => patchPlace(place.id, event.target.value, kind)}><option>Not counted</option>{[...new Set([...settingsDraft.types.map(type => type.name), 'Theatre', 'Wards', 'Nights', 'Clinic', 'Assessment'])].map(name => <option key={name}>{name}</option>)}</select></label><label className="field">Kind<select value={kind} onChange={event => patchPlace(place.id, typeName, event.target.value as 'day' | 'on-call')}><option value="day">Day</option><option value="on-call">On-call</option></select></label></div>;
-    })}</>}<button type="button" onClick={() => { const name = window.prompt('Name this session type'); if (name?.trim()) setSettingsDraft(current => ({ ...current, types: [...current.types, { id: `session-${Date.now()}`, name: name.trim(), colour: SESSION_COLOURS[current.types.length % SESSION_COLOURS.length].number, kind: 'day', placeIds: [] }] })); }}>Add a session type</button></div>}
+    {step === 'types' && <div className="setup-wizard-step">{!hasRota ? <p>Import your rota first to sort places. You can do this later in Settings.</p> : <SessionTypesEditor settings={settingsDraft} places={places.map(place => ({ id: place.id, name: place.name }))} unsortedPlaceIds={isSuggestedSessionDraft ? places.filter(place => suggestSessionType(place.name) === 'Not counted').map(place => place.id) : []} showSuggestionNote onUnsortedCountChange={setUnsortedCount} onChange={setSettingsDraft} />}</div>}
     {step === 'groups' && <div className="setup-wizard-step">{!hasRota ? <p>Import your rota first to group grades. You can do this later in Settings.</p> : <>
       <p>Each grade starts in its own group. Put grades together to compare them, and name each group.</p>
       {groups.map(group => <section className="setup-group-card" key={group.id}>
@@ -148,6 +136,6 @@ export function SetupWizard({ mode, go, onFinish, initialStep = 'role' }: { mode
     </>}</div>}
     {step === 'ratios' && <div className="setup-wizard-step">{!hasRota ? <p>Import your rota first. You can set ratios later in Settings.</p> : <><p>Change them only if you know the values for your department.</p><SessionRatioTable settings={settingsDraft} onChange={changeRatio} /></>}</div>}
     {step === 'minimums' && <div className="setup-wizard-step"><p>Find swaps warns when a swap or leave would leave fewer doctors than this on a day.</p><div className="swap-minimums">{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((day, index) => <label className="field" key={day}>{day}<input type="number" min="0" placeholder="No minimum" value={minimumDraft.weekdays[index] || ''} onChange={event => setMinimumDraft(current => ({ ...current, weekdays: current.weekdays.map((value, i) => i === index ? Number(event.target.value) || 0 : value) }))} /></label>)}<label className="field">Bank holiday<input type="number" min="0" placeholder="No minimum" value={minimumDraft.bankHoliday || ''} onChange={event => setMinimumDraft(current => ({ ...current, bankHoliday: Number(event.target.value) || 0 }))} /></label></div></div>}
-    <footer className="setup-wizard-actions"><button type="button" disabled={step === 'role'} onClick={() => move('back')}>Back</button><button type="button" className="ghost" onClick={() => move('skip')}>Skip</button><button type="button" className="primary" disabled={!canAdvanceSetupWizard(step, hasRota, !!doctorDraft, roleDraft)} onClick={() => move('next')}>Next</button></footer>
+    <footer className="setup-wizard-actions">{step === 'types' && hasRota && isSuggestedSessionDraft ? <span className="small muted">{unsortedCount} {unsortedCount === 1 ? 'place' : 'places'} not sorted yet</span> : <span /> }<button type="button" disabled={step === 'role'} onClick={() => move('back')} aria-label="Back">Back</button><button type="button" className="ghost" onClick={() => move('skip')}>Skip</button><button type="button" className="primary" disabled={!canAdvanceSetupWizard(step, hasRota, !!doctorDraft, roleDraft)} onClick={() => move('next')}>Next</button></footer>
   </section></div>;
 }
