@@ -156,6 +156,9 @@
 .setup-ambiguous h2 { margin: 0; font-size: 16px; }
 .setup-placement { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 280px); align-items: center; }
 .setup-wizard-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 26px; padding-top: 14px; border-top: 1px solid var(--line); }
+.swap-wizard { margin: 0 auto; min-width: 0; }
+.swap-wizard .swap-search-form, .swap-wizard .swap-date-calendar { min-width: 0; }
+.swap-wizard-footer { flex-wrap: wrap; }
 .setup-wizard-step button.primary { background: var(--panel); color: var(--accent); border: 1px solid var(--line); box-shadow: none; }
 .setup-import-summary ~ .setup-import-panel { border: 0; padding: 0; box-shadow: none; }
 .side-panel-backdrop { position: fixed; z-index: 30; inset: 0; border-radius: 0; background: rgba(0,0,0,.16); }
@@ -727,6 +730,8 @@ tr.row-on td.sticky-col { color: var(--accent); font-weight: 600; }
 .swap-more-options > .stack { padding-top: 14px; }
 .swap-recent { margin-top: 20px; }
 .swap-recent-search { display: flex; align-items: flex-start; gap: 4px; flex-direction: column; width: 100%; color: inherit; text-align: left; }
+.swap-recent-search span:last-child { margin-top: 4px; padding: 6px 10px; border-radius: 6px; background: var(--accent); color: var(--on-accent, white); font-weight: 650; }
+.swap-recent-search:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .swap-disclaimer { margin-top: 18px; }
 .swap-results { margin-top: 18px; }
 .swap-results h2, .swap-results h3, .swap-plan h3 { margin-top: 0; }
@@ -740,6 +745,7 @@ tr.row-on td.sticky-col { color: var(--accent); font-weight: 600; }
 .swap-filters button { display: inline-flex; gap: 6px; }
 .swap-filters button span { min-width: 20px; border-radius: 999px; background: var(--panel); padding: 0 5px; }
 .swap-filters button.on { background: var(--accent); color: #fff; }
+.swap-filters button.on span { background: #fff; color: var(--accent); }
 .swap-hide-switches { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
 .swap-hide-switches label { display: inline-flex; gap: 6px; align-items: center; font-size: 0.92rem; }
 .swap-person-group { gap: 10px; }

@@ -4,7 +4,7 @@
  * test the solver and to check manual edits live.
  */
 import { addDays, dateRange, indexProfile, matchesDay, matchesStaff, matchesWork, periodBuckets, shiftHours, shiftInterval, weekendOf } from './calendar';
-import { activeRules, breaksRest, canEverDo, capacity, withEmploymentDates, countBounds, demandFor, fairnessDimensions, isSoft, minimumApplies, shareFactor } from './semantics';
+import { activeRules, breaksRest, canEverDo, capacity, withEmploymentDates, countBounds, fairnessDimensions, isSoft, minimumApplies, shareFactor } from './semantics';
 import type { Assignment, ISODate, RotaProblem, Rule, Staff } from './types';
 
 export interface Violation {
@@ -70,6 +70,12 @@ interface Placed extends Assignment {
 export interface ValidateOptions {
   /** Only check rules for these people (used to test "what if" changes quickly). */
   staffIds?: string[];
+  /** Check only individual rule and availability effects, for isolated swap-chain checks. */
+  individualOnly?: boolean;
+  /** Omit fairness rows when the caller only needs rule violations. */
+  skipFairness?: boolean;
+  /** Limit person-specific checks while retaining whole-team checks such as coverage and skill mix. */
+  scopeStaffIds?: string[];
 }
 
 export function validate(input: RotaProblem, assignments: Assignment[], opts: ValidateOptions = {}): ValidationReport {
@@ -79,6 +85,7 @@ export function validate(input: RotaProblem, assignments: Assignment[], opts: Va
   const dates = dateRange(problem.start, problem.end);
   const inHorizon = new Set(dates);
   const violations: Violation[] = [];
+  const scopedStaff = opts.scopeStaffIds ? new Set(opts.scopeStaffIds) : undefined;
   const v = (ruleId: string, ruleName: string, message: string, staffId?: string, date?: ISODate, details?: MaxHoursViolationDetails) =>
     violations.push({ ruleId, ruleName, message, staffId, date, ...(details ? { details } : {}) });
 
@@ -103,16 +110,40 @@ export function validate(input: RotaProblem, assignments: Assignment[], opts: Va
   const roleName = (id?: string) => (id ? idx.roles.get(id)?.name ?? id : 'outside commitment');
   const shiftName = (id: string) => idx.shiftTypes.get(id)?.name ?? id;
   const isFixed = (a: Assignment) => problem.fixed.some(f => f.staffId === a.staffId && f.date === a.date && f.shiftTypeId === a.shiftTypeId && f.roleId === a.roleId);
+  const demandsByWork = new Map<string, typeof profile.demands>();
+  for (const demand of profile.demands) {
+    const key = `${demand.roleId}|${demand.shiftTypeId}`;
+    demandsByWork.set(key, [...(demandsByWork.get(key) ?? []), demand]);
+  }
+  const demandCache = new Map<string, { min: number; max: number; importance: number }>();
+  const demandAt = (roleId: string, shiftTypeId: string, date: ISODate) => {
+    const key = `${roleId}|${shiftTypeId}|${date}`;
+    const cached = demandCache.get(key);
+    if (cached) return cached;
+    const matching = (demandsByWork.get(`${roleId}|${shiftTypeId}`) ?? []).filter(d => matchesDay(d.days, date));
+    const oneOff = matching.filter(d => d.days.dates && d.days.dates.length > 0);
+    let min = 0, max = 0, importance = 0;
+    for (const d of oneOff.length ? oneOff : matching) {
+      min += d.min; max += d.max; importance = Math.max(importance, d.importance ?? 1);
+    }
+    const result = { min, max, importance: importance || 1 };
+    demandCache.set(key, result);
+    return result;
+  };
 
   // Fixed assignments must be present.
+  const placedKeys = new Set(placed.map(p => `${p.staffId}|${p.date}|${p.shiftTypeId}|${p.roleId ?? ''}`));
   for (const f of problem.fixed) {
-    if (!placed.some(p => p.staffId === f.staffId && p.date === f.date && p.shiftTypeId === f.shiftTypeId && p.roleId === f.roleId)) {
+    if (opts.individualOnly && opts.staffIds && !opts.staffIds.includes(f.staffId)) continue;
+    if (scopedStaff && !scopedStaff.has(f.staffId)) continue;
+    if (!placedKeys.has(`${f.staffId}|${f.date}|${f.shiftTypeId}|${f.roleId ?? ''}`)) {
       v('fixed', 'Pre-booked shift', `Pre-booked shift missing`, f.staffId, f.date);
     }
   }
 
   // Availability.
   for (const p of placed) {
+    if (scopedStaff && !scopedStaff.has(p.staffId)) continue;
     if (isFixed(p)) continue;
     const off = problem.unavailability.find(u => u.staffId === p.staffId && u.date === p.date && (!u.shiftTypeIds || u.shiftTypeIds.includes(p.shiftTypeId)));
     if (off) v('availability', 'Availability', `Booked while unavailable${off.reason ? ` (${off.reason})` : ''}`, p.staffId, p.date);
@@ -120,6 +151,7 @@ export function validate(input: RotaProblem, assignments: Assignment[], opts: Va
 
   // One thing at a time: no overlapping shifts.
   for (const [staffId, list] of byStaff) {
+    if (scopedStaff && !scopedStaff.has(staffId)) continue;
     for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length && list[j].start < list[i].end; j++) {
       v('overlap', 'Overlapping shifts', `Two shifts at once (${shiftName(list[i].shiftTypeId)} and ${shiftName(list[j].shiftTypeId)})`, staffId, list[j].date);
     }
@@ -131,15 +163,15 @@ export function validate(input: RotaProblem, assignments: Assignment[], opts: Va
     const k = `${p.roleId}|${p.shiftTypeId}|${p.date}`;
     coverCount.set(k, (coverCount.get(k) ?? 0) + 1);
   }
-  for (const [k, n] of coverCount) {
+  for (const [k, n] of opts.individualOnly ? [] : coverCount) {
     const [roleId, shiftTypeId, date] = k.split('|');
-    const { max } = demandFor(profile, roleId, shiftTypeId, date);
+    const { max } = demandAt(roleId, shiftTypeId, date);
     const fixedHere = problem.fixed.filter(f => f.roleId === roleId && f.shiftTypeId === shiftTypeId && f.date === date).length;
     if (n > Math.max(max, fixedHere)) v('demand', 'Staffing maximum', `${n} people on ${roleName(roleId)} ${shiftName(shiftTypeId)} (max ${max})`, undefined, date);
   }
   const gaps: CoverageGap[] = [];
-  for (const date of dates) for (const role of profile.roles) for (const st of profile.shiftTypes) {
-    const { min } = demandFor(profile, role.id, st.id, date);
+  for (const date of opts.individualOnly ? [] : dates) for (const role of profile.roles) for (const st of profile.shiftTypes) {
+    const { min } = demandAt(role.id, st.id, date);
     if (min <= 0) continue;
     const n = coverCount.get(`${role.id}|${st.id}|${date}`) ?? 0;
     if (n < min) gaps.push({ roleId: role.id, shiftTypeId: st.id, date, required: min, assigned: n });
@@ -151,10 +183,10 @@ export function validate(input: RotaProblem, assignments: Assignment[], opts: Va
   for (const rule of activeRules(profile)) {
     if (rule.type === 'skillMix') {
       // A whole-team check, so skipped when only checking particular people.
-      if (!opts.staffIds) checkSkillMix(rule);
+      if (!opts.staffIds && !opts.individualOnly) checkSkillMix(rule);
       continue;
     }
-    const people = profile.staff.filter(s => matchesStaff(rule.who, s) && (!opts.staffIds || opts.staffIds.includes(s.id)));
+    const people = profile.staff.filter(s => matchesStaff(rule.who, s) && (!opts.staffIds || opts.staffIds.includes(s.id)) && (!scopedStaff || scopedStaff.has(s.id)));
     for (const s of people) {
       const list = byStaff.get(s.id) ?? [];
       checkRule(rule, s, list);
@@ -169,7 +201,7 @@ export function validate(input: RotaProblem, assignments: Assignment[], opts: Va
   function checkSkillMix(rule: Extract<Rule, { type: 'skillMix' }>) {
     for (const d of dates) {
       if (!matchesDay(rule.days, d)) continue;
-      const staffed = profile.roles.some(role => profile.shiftTypes.some(st => demandFor(profile, role.id, st.id, d).max > 0 && matchesWork(rule.work, role.id, st.id, idx.roles)));
+      const staffed = profile.roles.some(role => profile.shiftTypes.some(st => demandAt(role.id, st.id, d).max > 0 && matchesWork(rule.work, role.id, st.id, idx.roles)));
       if (!staffed) continue;
       const n = placed.filter(p => p.date === d && work(p, rule.work) && matchesStaff(rule.who, idx.staff.get(p.staffId)!)).length;
       if (n < rule.min) {
@@ -218,7 +250,7 @@ export function validate(input: RotaProblem, assignments: Assignment[], opts: Va
         const [a, b] = rule.shiftTypeIds;
         for (const d of dates) {
           if (!matchesDay(rule.days, d)) continue;
-          if (demandFor(profile, rule.roleId, a, d).max <= 0 || demandFor(profile, rule.roleId, b, d).max <= 0) continue;
+          if (demandAt(rule.roleId, a, d).max <= 0 || demandAt(rule.roleId, b, d).max <= 0) continue;
           const hasA = list.some(p => p.date === d && p.roleId === rule.roleId && p.shiftTypeId === a);
           const hasB = list.some(p => p.date === d && p.roleId === rule.roleId && p.shiftTypeId === b);
           if (hasA !== hasB) report(rule, s.id, d, `Covers only one half of linked ${roleName(rule.roleId)} shifts`);
@@ -278,16 +310,19 @@ export function validate(input: RotaProblem, assignments: Assignment[], opts: Va
       }
       case 'maxHours': {
         const limit = rule.hours * (rule.scaleByFte ? s.fte : 1);
+        const hoursByDate = new Map<ISODate, number>();
+        for (const p of list) hoursByDate.set(p.date, (hoursByDate.get(p.date) ?? 0) + p.hours);
+        const prefixHours = [0];
+        for (const d of dates) prefixHours.push(prefixHours.at(-1)! + (hoursByDate.get(d) ?? 0));
         for (let i = 0; i < dates.length; i++) {
           const d = dates[i];
           const endDate = addDays(d, rule.windowDays - 1);
-          const window = new Set(dateRange(d, endDate));
-          const shifts = list.filter(p => window.has(p.date));
-          const total = shifts.reduce((t, p) => t + p.hours, 0);
+          const endIndex = Math.min(dates.length - 1, i + rule.windowDays - 1);
+          const total = prefixHours[endIndex + 1] - prefixHours[i];
           if (total > limit + 1e-6) {
             report(rule, s.id, d, `${round(total)}h in ${rule.windowDays} days from ${d} (max ${round(limit)}h)`, 1, undefined, {
               kind: 'maxHours', startDate: d, endDate, totalHours: total, limitHours: limit,
-              shifts: shifts.map(({ date, shiftTypeId, roleId, hours }) => ({ date, shiftTypeId, ...(roleId ? { roleId } : {}), hours })),
+              shifts: list.filter(p => p.date >= d && p.date <= endDate).map(({ date, shiftTypeId, roleId, hours }) => ({ date, shiftTypeId, ...(roleId ? { roleId } : {}), hours })),
             });
             i += rule.windowDays - 1; // one report per breach, not one per overlapping window
           }
@@ -315,7 +350,7 @@ export function validate(input: RotaProblem, assignments: Assignment[], opts: Va
 
   // Fairness rows.
   const fairness: FairnessRow[] = [];
-  for (const dim of opts.staffIds ? [] : fairnessDimensions(profile)) {
+  for (const dim of opts.skipFairness || opts.staffIds || opts.individualOnly ? [] : fairnessDimensions(profile)) {
     for (const s of profile.staff.filter(x => matchesStaff(dim.who, x))) {
       const list = (byStaff.get(s.id) ?? []).filter(p => work(p, dim.work) && (!dim.weekendsOnly || weekendOf(p.date, idx.shiftTypes.get(p.shiftTypeId)!)));
       const load = list.reduce((t, p) => t + (dim.unit === 'hours' ? p.hours : 1), 0);

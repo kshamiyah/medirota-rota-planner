@@ -10,15 +10,21 @@ export interface SwapWorkerRequest {
 }
 
 export type SwapWorkerMessage =
-  | { type: 'progress'; message: string }
+  | { type: 'progress'; message: string; optionsFound?: number; partialResult?: SwapResult }
   | { type: 'done'; result: SwapResult }
   | { type: 'error'; message: string };
 
 self.onmessage = (event: MessageEvent<SwapWorkerRequest>) => {
   const post = (message: SwapWorkerMessage) => self.postMessage(message);
-  post({ type: 'progress', message: 'Checking possible swaps and working-time limits' });
+  let lastPartialSentAt = 0;
   try {
-    post({ type: 'done', result: findSwaps(event.data.profile, event.data.snapshot, event.data.settings, event.data.request) });
+    const result = findSwaps(event.data.profile, event.data.snapshot, event.data.settings, event.data.request, update => {
+      const now = Date.now();
+      const partialResult = update.partialResult && now - lastPartialSentAt >= 300 ? update.partialResult : undefined;
+      if (partialResult) lastPartialSentAt = now;
+      post({ type: 'progress', message: `${update.stage}… ${update.optionsFound} options found so far`, optionsFound: update.optionsFound, ...(partialResult ? { partialResult } : {}) });
+    });
+    post({ type: 'done', result });
   } catch (error) {
     post({ type: 'error', message: error instanceof Error ? error.message : String(error) });
   }

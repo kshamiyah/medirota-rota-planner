@@ -57,10 +57,11 @@ export function keyboardCalendarDate(date: ISODate, key: string): ISODate | unde
   return delta ? addDays(date, delta) : undefined;
 }
 
-export function SwapDateCalendar({ snapshot, staffId, leaveDates, cantWorkDates, onLeaveDates, onCantWorkDates, selectionMode = 'multiple', selectedDate, onSelectedDateChange }: {
+export function SwapDateCalendar({ snapshot, staffId, leaveDates, cantWorkDates, onLeaveDates, onCantWorkDates, selectionMode = 'multiple', selectedDate, onSelectedDateChange, forcedMode }: {
   snapshot: RotaSnapshot; staffId: string; leaveDates: ISODate[]; cantWorkDates: ISODate[];
   onLeaveDates: (dates: ISODate[]) => void; onCantWorkDates: (dates: ISODate[]) => void;
   selectionMode?: 'multiple' | 'single'; selectedDate?: ISODate; onSelectedDateChange?: (date: ISODate) => void;
+  forcedMode?: Mode;
 }) {
   const imported = Object.keys(snapshot.importedAt).sort();
   const today = localToday();
@@ -73,8 +74,9 @@ export function SwapDateCalendar({ snapshot, staffId, leaveDates, cantWorkDates,
   const importedDates = useMemo(() => new Set(imported.flatMap(start => dateRange(start, addDays(start, 6)))), [imported]);
   useEffect(() => { setMonth(initialCalendarMonth(imported, selectionMode === 'single' ? (imported[0] ?? today) : today, selectionMode === 'single' ? selectedDate : leaveDates[0])); }, [staffId, selectionMode === 'single' ? selectedDate : leaveDates[0], imported.join('|'), today]);
   const cells = calendarMonthDates(month);
-  const value = mode === 'leave' ? leaveDates : cantWorkDates;
-  const change = mode === 'leave' ? onLeaveDates : onCantWorkDates;
+  const activeMode = forcedMode ?? mode;
+  const value = activeMode === 'leave' ? leaveDates : cantWorkDates;
+  const change = activeMode === 'leave' ? onLeaveDates : onCantWorkDates;
   const choose = (date: ISODate, shift = false) => {
     if (!importedDates.has(date)) return;
     if (selectionMode === 'single') { onSelectedDateChange?.(date); anchor.current = date; return; }
@@ -99,12 +101,12 @@ export function SwapDateCalendar({ snapshot, staffId, leaveDates, cantWorkDates,
   const monthName = new Date(`${month}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
   return (
     <section className="swap-date-calendar" onPointerUp={() => { dragging.current = false; }}>
-      {selectionMode === 'multiple' && <div className="row swap-calendar-controls">
+      {selectionMode === 'multiple' && !forcedMode && <div className="row swap-calendar-controls">
         <div className="seg" aria-label="Dates to pick"><button type="button" className={mode === 'leave' ? 'on' : ''} onClick={() => setMode('leave')}>Leave dates</button><button type="button" className={mode === 'cantWork' ? 'on' : ''} onClick={() => setMode('cantWork')}>Can’t work in return</button></div>
         <button type="button" className="swap-phone-range" onClick={() => { setRangeMode(value => !value); setRangeStart(undefined); }}>{rangeMode ? 'Cancel range' : 'Pick a range'}</button>
       </div>}
       <div className="swap-month-head"><button type="button" aria-label="Previous month" onClick={() => setMonth(value => shiftedMonth(value, -1))}>‹</button><h3>{monthName}</h3><button type="button" aria-label="Next month" onClick={() => setMonth(value => shiftedMonth(value, 1))}>›</button></div>
-      <div className="swap-month-grid" role="grid" aria-label={`${monthName}, ${mode === 'leave' ? 'leave dates' : 'dates you cannot work in return'}`}>
+      <div className="swap-month-grid" role="grid" aria-label={`${monthName}, ${activeMode === 'leave' ? 'leave dates' : 'dates you cannot work in return'}`}>
         {WEEKDAY_NAMES.map(day => <div className="swap-month-weekday" role="columnheader" key={day}>{day.slice(0, 3)}</div>)}
         {cells.map((date, index) => date === null ? <span key={`blank-${index}`} /> : (() => {
           const importedDay = importedDates.has(date); const day = snapshot.days[staffId]?.[date];

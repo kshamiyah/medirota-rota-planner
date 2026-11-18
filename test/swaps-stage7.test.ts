@@ -12,6 +12,30 @@ function run(kind: Stage7Case) {
 const special = (plan: SwapPlan) => plan.chains.some(chain => chain.sameDay) || !!plan.missedTraining?.length;
 
 describe('Stage 7 independent engine acceptance', () => {
+  it('ends progress with the exact number of returned plans', () => {
+    const { ws, request } = stage7Fixture('sameAt');
+    let lastProgress: { stage: string; optionsFound: number } | undefined;
+    const result = findSwaps(ws.profile, ws.swapFinder!.snapshot, ws.swapFinder!.settings, request, progress => { lastProgress = progress; });
+    expect(lastProgress).toMatchObject({ stage: 'Search complete', optionsFound: result.plans.length });
+  });
+
+  it('keeps unlimited output repeatable and marks a bounded search', () => {
+    const { ws, request } = stage7Fixture('paging');
+    const settings = ws.swapFinder!.settings;
+    const baseline = findSwaps(ws.profile, ws.swapFinder!.snapshot, settings, request);
+    expect(findSwaps(ws.profile, ws.swapFinder!.snapshot, settings, request)).toEqual(baseline);
+    const progress: string[] = [];
+    const started = Date.now();
+    const bounded = findSwaps(ws.profile, ws.swapFinder!.snapshot, settings, { ...request, deadlineMs: 1 }, message => { progress.push(message.stage); });
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(bounded.stoppedEarly).toBe('time');
+    expect(bounded.ruledOut).toHaveLength(0);
+    expect(bounded.notCheckedYet?.length).toBeGreaterThan(0);
+    expect(progress.length).toBeGreaterThan(1);
+    expect(bounded.plans.every(plan => baseline.plans.some(item => JSON.stringify(item) === JSON.stringify(plan)))).toBe(true);
+    const baselinePositions = bounded.plans.map(plan => baseline.plans.findIndex(item => JSON.stringify(item) === JSON.stringify(plan)));
+    expect(baselinePositions).toEqual([...baselinePositions].sort((a, b) => a - b));
+  });
   it.each([['sameAt', 7], ['sameAbove', 8]] as const)('offers %s with the actual weekday staffing margin', (kind, doctors) => {
     const { result } = run(kind);
     expect(result.plans).toHaveLength(1);

@@ -14,6 +14,9 @@ import type { Page } from './types';
 import { analyseLeaveCheck, leaveCheckDateLabel } from '../leaveCheck';
 import { defaultSessionsSettings } from '../sessions';
 import { dayJobSwapText, findDayJobSwapOptions, type DayJobSwapResult } from '../dayJobSwaps';
+import { advanceSwapWizard, leaveNeedsNoSwap, showSwapSearchFormCard, swapWizardTitles } from '../swapWizard';
+
+const SWAP_SEARCH_LIMIT_MS = 60_000;
 
 function DateList({ value, onChange, label }: { value: ISODate[]; onChange: (dates: ISODate[]) => void; label: string }) {
   const [next, setNext] = useState('');
@@ -228,7 +231,7 @@ function Results({ result, staff, requesterId, snapshot, decline, findLongDay, l
       {result.plans.length === 0
         ? <Empty><h2>No swap options found</h2><p>The finder could not make a valid chain for these dates. Open the reasons below to see why each doctor was ruled out.</p></Empty>
         : <div className="stack"><div className="row swap-results-top"><ShareResults plans={result.plans} filter={filter} hides={hides} requesterId={requesterId} staff={staff} covered={result.clashes} existingShortages={result.existingShortages} extraShiftsToHandBack={result.extraShiftsToHandBack} importedAt={latestImport(snapshot)} searchIncomplete={!!(result.morePlanSizes?.length || result.limits?.length || result.truncated)} /><div className="swap-results-controls"><div className="swap-filters">{filters.map(item => <button type="button" className={filter === item.id ? 'on' : ''} key={item.id} onClick={() => setFilter(item.id)}>{item.label} <span>{counts[item.id]}</span></button>)}</div><div className="swap-hide-switches"><label><input type="checkbox" checked={!!hides.hideSameDay} onChange={event => setHides(current => ({ ...current, hideSameDay: event.target.checked }))} /> Hide NWD swaps</label><label><input type="checkbox" checked={!!hides.hideMissedTraining} onChange={event => setHides(current => ({ ...current, hideMissedTraining: event.target.checked }))} /> Hide missed training</label></div></div></div><h2>{counts[filter]} {counts[filter] === 1 ? 'option' : 'options'}</h2>{hasChosen && chosenGroups.length > 0 && <section className="stack"><h2>Your chosen people</h2>{renderGroups(chosenGroups)}</section>}{hasChosen && planGroups.length > 0 && <h2>Everyone else</h2>}{renderGroups(planGroups)}{!!result.morePlanSizes?.length && <div className="row swap-more-plans">{result.morePlanSizes.map(size => <button type="button" disabled={loading} key={size} onClick={() => loadMore(size)}>Find 50 more {size === 2 ? 'direct' : `${size}-way`}</button>)}</div>}</div>}
-      <details className="card swap-reasons" open={result.plans.length === 0 || undefined}><summary>Why other doctors were ruled out</summary>{result.ruledOut.length === 0 ? <p className="muted">No further reasons were recorded.</p> : [...grouped].map(([group, rows]) => <section key={group}><h3>{groupLabels[group] ?? group} ({rows.length})</h3>{rows.map((item, index) => <p key={`${item.staffId}-${item.unit.dates.join()}-${index}`}><b>{doctorName(staff, item.staffId)}</b>: {item.reason}</p>)}</section>)}</details>
+      <details className="card swap-reasons" open={result.plans.length === 0 || undefined}><summary>Why other doctors were ruled out</summary>{result.ruledOut.length === 0 ? <p className="muted">No further reasons were recorded.</p> : [...grouped].map(([group, rows]) => <section key={group}><h3>{groupLabels[group] ?? group} ({rows.length})</h3>{rows.map((item, index) => <p key={`${item.staffId}-${item.unit.dates.join()}-${index}`}><b>{doctorName(staff, item.staffId)}</b>: {item.reason}</p>)}</section>)}{!!result.notCheckedYet?.length && <section><h3>Not checked yet ({result.notCheckedYet.length})</h3>{[...new Set(result.notCheckedYet.map(item => item.staffId))].map(id => <p key={id}><b>{doctorName(staff, id)}</b>: not checked yet</p>)}</section>}</details>
     </div>
   );
 }
@@ -270,6 +273,7 @@ export function FindSwaps({ go }: { go: (page: Page) => void }) {
   const initialStaff = ws.role === 'coordinator' ? '' : visibleStaff.some(person => person.id === lastSearch?.staffId) ? lastSearch!.staffId : visibleStaff[0]?.id ?? '';
   const [staffId, setStaffId] = useState(initialStaff);
   const [searchType, setSearchType] = useState<'leave' | 'dayJob'>('leave');
+  const [wizardStep, setWizardStep] = useState(1);
   const firstImportedDate = Object.keys(data?.snapshot.importedAt ?? {}).sort()[0] ?? localISODate();
   const [dayJobDate, setDayJobDate] = useState<ISODate>(firstImportedDate);
   const [doctorText, setDoctorText] = useState(() => initialStaff ? doctorName(visibleStaff, initialStaff) : '');
@@ -284,7 +288,6 @@ export function FindSwaps({ go }: { go: (page: Page) => void }) {
   const [returnWindow, setReturnWindow] = useState<ReturnWindow>(data?.settings.returnWindow ?? { kind: 'any' });
   const [noAlertsOnly, setNoAlertsOnly] = useState(data?.settings.noAlertsOnly ?? false);
   const [maxChain, setMaxChain] = useState(data?.settings.maxChain ?? 4);
-  const [formOpen, setFormOpen] = useState(true);
   const [result, setResult] = useState<{ value: SwapResult; inputs: SwapFormInputs; settingsFingerprint: string; planLimits: Partial<Record<2 | 3 | 4, number>> }>();
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
@@ -304,22 +307,25 @@ export function FindSwaps({ go }: { go: (page: Page) => void }) {
   const pastWarning = useMemo(() => pastLeaveWarning(leaveDates, today), [leaveDates, today]);
   const leaveCheck = useMemo(() => data ? analyseLeaveCheck(ws.profile, data.snapshot, data.settings, staff, ws.sessions ?? defaultSessionsSettings(ws.profile), staffId, leaveDates, includeNormalDays, today) : undefined, [data, staffId, leaveDates, includeNormalDays, today, ws.profile, ws.sessions, staff]);
   const dayJobResult = useMemo(() => data ? findDayJobSwapOptions({ profile: ws.profile, snapshot: data.snapshot, sessions: ws.sessions ?? defaultSessionsSettings(ws.profile), settings: data.settings, consultantLists: ws.consultantLists, requesterId: staffId, date: dayJobDate, viewerId: ws.me }) : undefined, [data, ws.profile, ws.sessions, ws.consultantLists, staffId, dayJobDate, ws.me]);
-  const runSearch = (searchInputs: SwapFormInputs = currentInputs, planLimits: Partial<Record<2 | 3 | 4, number>> = {}, appendFrom?: typeof result, appendSize?: 2 | 3 | 4) => {
+  const runSearch = (searchInputs: SwapFormInputs = currentInputs, planLimits: Partial<Record<2 | 3 | 4, number>> = {}, appendFrom?: typeof result, appendSize?: 2 | 3 | 4, keepLooking = false) => {
     if (!data || !searchInputs.staffId || !searchInputs.leaveDates.length) return;
     const requestInputs: SwapFormInputs = annualLeaveInputs(structuredClone(searchInputs));
     const requestSettingsFingerprint = swapSettingsFingerprint(data.settings);
     worker.current?.terminate();
     if (timer.current) window.clearInterval(timer.current);
-    setError(''); if (!appendFrom) setResult(undefined); setRunning(true); setProgress(appendFrom ? 'Finding 50 more options' : 'Starting the search'); setSeconds(0);
+    setError(''); if (!appendFrom && !keepLooking) setResult(undefined); setRunning(true); setProgress(appendFrom ? 'Finding 50 more options' : 'Starting the search'); setSeconds(0);
     const started = Date.now();
     timer.current = window.setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
     const nextWorker = new Worker(new URL('../swaps.worker.ts', import.meta.url), { type: 'module' });
     worker.current = nextWorker;
     nextWorker.onmessage = (event: MessageEvent<SwapWorkerMessage>) => {
-      if (event.data.type === 'progress') setProgress(event.data.message);
+      if (event.data.type === 'progress') {
+        setProgress(event.data.message);
+        if (event.data.partialResult) setResult({ value: event.data.partialResult, inputs: requestInputs, settingsFingerprint: requestSettingsFingerprint, planLimits });
+      }
       if (event.data.type === 'done') {
         const value = appendFrom ? { ...event.data.result, plans: appendSwapPlans(appendFrom.value.plans, event.data.result.plans, appendSize) } : event.data.result;
-        setResult({ value, inputs: requestInputs, settingsFingerprint: requestSettingsFingerprint, planLimits }); setRunning(false); setFormOpen(false); nextWorker.terminate(); if (timer.current) window.clearInterval(timer.current);
+        setResult({ value, inputs: requestInputs, settingsFingerprint: requestSettingsFingerprint, planLimits }); setRunning(false); setWizardStep(searchType === 'dayJob' ? 3 : 6); nextWorker.terminate(); if (timer.current) window.clearInterval(timer.current);
         if (!appendFrom) update(draft => {
           if (!draft.swapFinder) return;
           const saved = requestInputs as SwapRecentSearch;
@@ -330,7 +336,7 @@ export function FindSwaps({ go }: { go: (page: Page) => void }) {
       if (event.data.type === 'error') { setError(event.data.message); setRunning(false); nextWorker.terminate(); if (timer.current) window.clearInterval(timer.current); }
     };
     nextWorker.onerror = event => { setError(event.message || 'The search could not be completed.'); setRunning(false); nextWorker.terminate(); if (timer.current) window.clearInterval(timer.current); };
-    const request: SwapRequest = { staffId: requestInputs.staffId, leaveDates: requestInputs.leaveDates, leaveType: 'annual', cantWorkDates: requestInputs.cantWorkDates, excludeStaffIds: requestInputs.excludedStaffIds, includeNormalDays: requestInputs.includeNormalDays, today: localISODate(), planLimits, returnPattern: requestInputs.returnPattern, returnDayType: requestInputs.returnDayType, returnWindow: requestInputs.returnWindow, noAlertsOnly: requestInputs.noAlertsOnly, askMode: requestInputs.askMode, askStaffIds: requestInputs.askStaffIds };
+    const request: SwapRequest = { staffId: requestInputs.staffId, leaveDates: requestInputs.leaveDates, leaveType: 'annual', cantWorkDates: requestInputs.cantWorkDates, excludeStaffIds: requestInputs.excludedStaffIds, includeNormalDays: requestInputs.includeNormalDays, today: localISODate(), planLimits, returnPattern: requestInputs.returnPattern, returnDayType: requestInputs.returnDayType, returnWindow: requestInputs.returnWindow, noAlertsOnly: requestInputs.noAlertsOnly, askMode: requestInputs.askMode, askStaffIds: requestInputs.askStaffIds, deadlineMs: appendFrom ? 180_000 : keepLooking ? 180_000 : SWAP_SEARCH_LIMIT_MS };
     const payload: SwapWorkerRequest = { profile: ws.profile, snapshot: data.snapshot, settings: { ...data.settings, maxChain: requestInputs.maxChain ?? data.settings.maxChain }, request };
     nextWorker.postMessage(payload);
   };
@@ -341,7 +347,7 @@ export function FindSwaps({ go }: { go: (page: Page) => void }) {
   };
   const findLongDay = (date: ISODate, resultInputs: SwapFormInputs) => {
     const next = { ...resultInputs, leaveDates: [date] };
-    setStaffId(next.staffId); setDoctorText(doctorName(visibleStaff, next.staffId)); setLeaveDates(next.leaveDates); setCantWorkDates(next.cantWorkDates); setExcluded(next.excludedStaffIds); setIncludeNormalDays(next.includeNormalDays); setFormOpen(false);
+    setStaffId(next.staffId); setDoctorText(doctorName(visibleStaff, next.staffId)); setLeaveDates(next.leaveDates); setCantWorkDates(next.cantWorkDates); setExcluded(next.excludedStaffIds); setIncludeNormalDays(next.includeNormalDays); setWizardStep(6);
     runSearch(next);
   };
   const loadMore = (size: 2 | 3 | 4) => {
@@ -367,50 +373,75 @@ export function FindSwaps({ go }: { go: (page: Page) => void }) {
     setReturnDayType(annual.returnDayType ?? 'noPreference'); setReturnWindow(annual.returnWindow ?? { kind: 'any' });
     setNoAlertsOnly(annual.noAlertsOnly ?? false); setMaxChain(annual.maxChain ?? data?.settings.maxChain ?? 4);
   };
-  const rerunRecent = (recent: SwapRecentSearch) => { applyInputs(recent); setFormOpen(false); runSearch(recent); };
+  const rerunRecent = (recent: SwapRecentSearch) => { applyInputs(recent); setSearchType('leave'); setWizardStep(2); setResult(undefined); };
+
+  const noSwapNeeded = leaveNeedsNoSwap(leaveCheck);
+  const stepTitles = swapWizardTitles(searchType);
+  const moveStep = (next: number) => setWizardStep(Math.max(1, Math.min(stepTitles.length, next)));
 
   if (!data) return <><PageHead title="Find swaps">Find possible swaps from an imported MediRota rota.</PageHead><Empty><h2>Import a rota first</h2><p>The swap finder needs an imported MediRota rota before it can search.</p><button type="button" className="primary" onClick={() => go('import')}>Import from MediRota</button></Empty></>;
   const imported = latestImport(data.snapshot);
   return (
     <>
       <PageHead title="Find swaps">Find options to discuss without changing the rota.</PageHead>
-      <div className="day-job-search-type"><span className="field-label">Search type</span><div className="seg" aria-label="Search type"><button type="button" className={searchType === 'leave' ? 'on' : ''} onClick={() => setSearchType('leave')}>Cover my leave</button><button type="button" className={searchType === 'dayJob' ? 'on' : ''} onClick={() => setSearchType('dayJob')}>Swap my day job</button></div></div>
+      <section className="setup-wizard-card swap-wizard" aria-labelledby="swap-wizard-title">
+      <p className="eyebrow">Find swaps</p>
+      <div className="setup-wizard-progress"><span>Step {wizardStep} of {stepTitles.length}</span>{wizardStep > 1 && <span>{stepTitles[wizardStep - 1]}</span>}</div>
+      <h1 id="swap-wizard-title">{stepTitles[wizardStep - 1]}</h1>
+      {wizardStep === 1 && <div className="day-job-search-type"><div className="seg" aria-label="What do you need?"><button type="button" className={searchType === 'leave' ? 'on' : ''} onClick={() => { setSearchType('leave'); setWizardStep(1); }}>Cover my leave</button><button type="button" className={searchType === 'dayJob' ? 'on' : ''} onClick={() => { setSearchType('dayJob'); setWizardStep(1); }}>Swap my day job</button></div></div>}
       {!data.snapshot.extrasTagged && <p className="quiet-note">Extra shifts aren’t marked in this rota yet. Update from MediRota to mark them.</p>}
-      <div className="notice swap-import-date"><b>Rota imported:</b> {imported ? new Date(imported).toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' }) : 'import date unavailable'}</div>
-      {searchType === 'dayJob' ? <div className="card stack swap-search-form day-job-search-form">
-        <label className="field">Doctor<input list="swap-doctors-day-job" value={doctorText} placeholder={ws.role === 'coordinator' ? 'Choose a doctor' : 'Type a doctor’s name'} onChange={event => { const text = event.target.value; setDoctorText(text); const person = swapRequesterPeople(staff).find(item => item.name.toLocaleLowerCase() === text.toLocaleLowerCase()); if (person && person.id !== staffId) changeDoctor(person.id); else if (!text) setStaffId(''); }} /></label>
+      {(wizardStep === 1 || wizardStep === 2) && <div className="notice swap-import-date"><b>Rota imported:</b> {imported ? new Date(imported).toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' }) : 'import date unavailable'}</div>}
+      {searchType === 'dayJob' ? (showSwapSearchFormCard('dayJob', wizardStep, false) && <div className="card stack swap-search-form day-job-search-form">
+        {wizardStep === 1 && <><label className="field">{ws.role === 'coordinator' ? 'Doctor' : 'For you'}<input list="swap-doctors-day-job" value={doctorText} placeholder={ws.role === 'coordinator' ? 'Choose a doctor' : 'Type a doctor’s name'} onChange={event => { const text = event.target.value; setDoctorText(text); const person = swapRequesterPeople(staff).find(item => item.name.toLocaleLowerCase() === text.toLocaleLowerCase()); if (person && person.id !== staffId) changeDoctor(person.id); else if (!text) setStaffId(''); }} /></label>
         <datalist id="swap-doctors-day-job">{swapRequesterPeople(staff).map(person => <option key={person.id} value={person.name} />)}</datalist>
-        {dayJobResult?.requesterPlaceName && <p className="day-job-requester">{new Date(`${dayJobDate}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })}: {dayJobResult.requesterPlaceName}</p>}
+        </>}
+        {wizardStep === 2 && <><p>Choose the day job you want to swap.</p>{dayJobResult?.requesterPlaceName && <p className="day-job-requester">{new Date(`${dayJobDate}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })}: {dayJobResult.requesterPlaceName}</p>}
         <SwapDateCalendar snapshot={data.snapshot} staffId={staffId} leaveDates={[]} cantWorkDates={[]} onLeaveDates={() => undefined} onCantWorkDates={() => undefined} selectionMode="single" selectedDate={dayJobDate} onSelectedDateChange={setDayJobDate} />
-      </div> : <>
-      {!formOpen && (running || visibleResult) ? <div className="card swap-form-summary"><span><b>{doctorName(visibleStaff, visibleResult?.inputs.staffId ?? staffId)}</b> · {(visibleResult?.inputs.leaveDates ?? leaveDates).map(formatDateLong).join(', ')} · Annual leave</span><button type="button" onClick={() => setFormOpen(true)}>Edit</button>{running && <div className="notice" role="status"><b>{progress}</b><div className="small muted">{seconds} seconds. You can keep using this page while the search runs.</div></div>}</div> : <div className="card stack swap-search-form">
-        <label className="field">Doctor<input list="swap-doctors" value={doctorText} placeholder={ws.role === 'coordinator' ? 'Choose a doctor' : 'Type a doctor’s name'} onChange={event => { const text = event.target.value; setDoctorText(text); const person = swapRequesterPeople(staff).find(item => item.name.toLocaleLowerCase() === text.toLocaleLowerCase()); if (person && person.id !== staffId) changeDoctor(person.id); else if (!text) setStaffId(''); }} /></label>
+        </>}
+      </div>) : <>
+      {showSwapSearchFormCard('leave', wizardStep, running, error) && <div className="card stack swap-search-form">
+        {wizardStep === 1 && <><label className="field">{ws.role === 'coordinator' ? 'Doctor' : 'For you'}<input list="swap-doctors" value={doctorText} placeholder={ws.role === 'coordinator' ? 'Choose a doctor' : 'Type a doctor’s name'} onChange={event => { const text = event.target.value; setDoctorText(text); const person = swapRequesterPeople(staff).find(item => item.name.toLocaleLowerCase() === text.toLocaleLowerCase()); if (person && person.id !== staffId) changeDoctor(person.id); else if (!text) setStaffId(''); }} /></label>
         <datalist id="swap-doctors">{swapRequesterPeople(staff).map(person => <option key={person.id} value={person.name} />)}</datalist>
-        <section className="field-block"><span className="field-label">Who to ask</span><div className="seg swap-ask-mode"><button type="button" className={askMode === 'everyone' ? 'on' : ''} onClick={() => setAskMode('everyone')}>Everyone</button><button type="button" className={askMode === 'only' ? 'on' : ''} onClick={() => setAskMode('only')}>Only these people</button><button type="button" className={askMode === 'prefer' ? 'on' : ''} onClick={() => setAskMode('prefer')}>These people first, then everyone</button></div>{askMode !== 'everyone' && <MultiSelect label="People to ask" summary={askStaffIds.length ? personSummary(staff, askStaffIds.filter(id => swapOptionPeople(staff, staffId).some(person => person.id === id))) : 'Choose people'} clearLabel="Nobody chosen" onClear={() => setAskStaffIds([])} sections={[{ title: 'Doctors', options: swapOptionPeople(staff, staffId).map(person => ({ value: person.id, label: person.name })), value: askStaffIds.filter(id => swapOptionPeople(staff, staffId).some(person => person.id === id)), onChange: setAskStaffIds }]} />}</section>
-        <SwapDateCalendar snapshot={data.snapshot} staffId={staffId} leaveDates={leaveDates} cantWorkDates={cantWorkDates} onLeaveDates={setLeaveDates} onCantWorkDates={setCantWorkDates} />
-        {leaveCheck && <section className="leave-check" aria-label="Leave check"><h3>Leave check</h3><p className="leave-check-cost">{leaveCheck.cost}</p>{leaveCheck.outsideCount > 0 && <p className="small muted">{leaveCheck.outsideCount} {leaveCheck.outsideCount === 1 ? "day isn’t" : "days aren’t"} on the imported rota</p>}<div className="leave-check-part"><b>Your days</b>{leaveCheck.days.map((row, index) => <p key={`${row.dates[0]}-${index}`}><span>{leaveCheckDateLabel(row.dates)}</span>{row.activity && <> · {row.activity}</>} · {row.outcome}</p>)}</div><div className="leave-check-part"><b>Others off</b>{leaveCheck.othersOff.map((line, index) => <p key={`${index}-${line}`}>{line}</p>)}</div><div className="leave-check-part"><b>Minimum</b>{leaveCheck.minimum.map((line, index) => <p key={`${index}-${line}`}>{line}</p>)}</div></section>}
-        <details className="swap-more-options"><summary><b>More options</b></summary><div className="stack">
+        </>}
+        {wizardStep === 4 && <section className="field-block"><span className="field-label">Who would you ask?</span><div className="seg swap-ask-mode"><button type="button" className={askMode === 'everyone' ? 'on' : ''} onClick={() => setAskMode('everyone')}>Everyone</button><button type="button" className={askMode === 'only' ? 'on' : ''} onClick={() => setAskMode('only')}>Only these people</button><button type="button" className={askMode === 'prefer' ? 'on' : ''} onClick={() => setAskMode('prefer')}>These people first, then everyone</button></div>{askMode !== 'everyone' && <MultiSelect label="People to ask" summary={askStaffIds.length ? personSummary(staff, askStaffIds.filter(id => swapOptionPeople(staff, staffId).some(person => person.id === id))) : 'Choose people'} clearLabel="Nobody chosen" onClear={() => setAskStaffIds([])} sections={[{ title: 'Doctors', options: swapOptionPeople(staff, staffId).map(person => ({ value: person.id, label: person.name })), value: askStaffIds.filter(id => swapOptionPeople(staff, staffId).some(person => person.id === id)), onChange: setAskStaffIds }]} />}</section>}
+        {(wizardStep === 2 || wizardStep === 3) && <><p>{wizardStep === 2 ? 'Pick the days you need off.' : 'Pick any days you cannot work in return.'}</p><SwapDateCalendar snapshot={data.snapshot} staffId={staffId} leaveDates={leaveDates} cantWorkDates={cantWorkDates} onLeaveDates={setLeaveDates} onCantWorkDates={setCantWorkDates} forcedMode={wizardStep === 2 ? 'leave' : 'cantWork'} />
+        {wizardStep === 2 && leaveCheck && <><section className="leave-check" aria-label="Leave check"><h3>Leave check</h3><p className="leave-check-cost">{leaveCheck.cost}</p>{leaveCheck.outsideCount > 0 && <p className="small muted">{leaveCheck.outsideCount} {leaveCheck.outsideCount === 1 ? "day isn’t" : "days aren’t"} on the imported rota</p>}<div className="leave-check-part"><b>Your days</b>{leaveCheck.days.map((row, index) => <p key={`${row.dates[0]}-${index}`}><span>{leaveCheckDateLabel(row.dates)}</span>{row.activity && <> · {row.activity}</>} · {row.outcome}</p>)}</div><div className="leave-check-part"><b>Others off</b>{leaveCheck.othersOff.map((line, index) => <p key={`${index}-${line}`}>{line}</p>)}</div><div className="leave-check-part"><b>Minimum</b>{leaveCheck.minimum.map((line, index) => <p key={`${index}-${line}`}>{line}</p>)}</div></section>{noSwapNeeded && <p className="notice"><b>You don’t need a swap.</b> {leaveCheck.days.map(row => `${leaveCheckDateLabel(row.dates)}: ${row.outcome === 'Book as leave' ? 'book it as annual leave' : 'you’re already off'}`).join('. ')}.</p>}</>}</>}
+      {wizardStep === 5 && <div className="stack">
           <label className="field">Return shifts<select value={returnPattern} onChange={event => { const value = event.target.value as typeof returnPattern; setReturnPattern(value); saveSettings(draft => { draft.returnPattern = value; }); }}><option value="consecutive">Keep together as a block</option><option value="separate">Separate days</option><option value="noPreference">No preference</option></select></label>
           <label className="field">Return day type<select value={returnDayType} onChange={event => { const value = event.target.value as typeof returnDayType; setReturnDayType(value); saveSettings(draft => { draft.returnDayType = value; }); }}><option value="noPreference">No preference</option><option value="weekdays">Weekdays</option><option value="weekends">Weekends</option></select></label>
           <label className="field">Return window<select value={returnWindow.kind} onChange={event => { const kind = event.target.value; const value: ReturnWindow = kind === 'weeks' ? { kind, weeks: 4 } : kind === 'dates' ? { kind, from: leaveDates[0] ?? today, to: leaveDates.at(-1) ?? today } : { kind: 'any' }; setReturnWindow(value); saveSettings(draft => { draft.returnWindow = value; }); }}><option value="any">Any time in the imported weeks</option><option value="weeks">Within a number of weeks</option><option value="dates">Between two dates</option></select></label>
           {returnWindow.kind === 'weeks' && <label className="field">Weeks from the leave<input type="number" min="0" max="52" value={returnWindow.weeks} onChange={event => { const value: ReturnWindow = { kind: 'weeks', weeks: Math.max(0, Number(event.target.value)) }; setReturnWindow(value); saveSettings(draft => { draft.returnWindow = value; }); }} /></label>}
           {returnWindow.kind === 'dates' && <div className="grid-2"><label className="field">Return from<input type="date" value={returnWindow.from} onChange={event => { const value = { ...returnWindow, from: event.target.value }; setReturnWindow(value); saveSettings(draft => { draft.returnWindow = value; }); }} /></label><label className="field">Return until<input type="date" value={returnWindow.to} onChange={event => { const value = { ...returnWindow, to: event.target.value }; setReturnWindow(value); saveSettings(draft => { draft.returnWindow = value; }); }} /></label></div>}
+      </div>}
+      {wizardStep === 5 && <details className="swap-more-options"><summary><b>More options</b></summary><div className="stack">
           <label><input type="checkbox" checked={noAlertsOnly} onChange={event => { const value = event.target.checked; setNoAlertsOnly(value); saveSettings(draft => { draft.noAlertsOnly = value; }); }} /> Only options with no alerts</label>
           <label className="field">Longest chain<select value={maxChain} onChange={event => { const value = Number(event.target.value); setMaxChain(value); saveSettings(draft => { draft.maxChain = value; }); }}><option value={2}>Direct swaps only</option><option value={3}>Up to 3 people</option><option value={4}>Up to 4 people</option></select></label>
           {askMode !== 'only' && <div className="field-block"><span className="field-label">People to leave out</span><MultiSelect label="People to leave out" summary={excluded.length ? personSummary(staff, excluded.filter(id => swapOptionPeople(staff, staffId).some(person => person.id === id))) : 'Nobody'} clearLabel="Nobody" onClear={() => setExcluded([])} sections={[{ title: 'Doctors', options: swapOptionPeople(staff, staffId).map(person => ({ value: person.id, label: person.name })), value: excluded.filter(id => swapOptionPeople(staff, staffId).some(person => person.id === id)), onChange: setExcluded }]} /></div>}
           <label><input type="checkbox" checked={includeNormalDays} onChange={event => { const value = event.target.checked; setIncludeNormalDays(value); saveSettings(draft => { draft.includeNormalDays = value; }); }} /> Also find swaps for normal working days</label>
           <button type="button" className="link-button" onClick={() => go('swapSettings')}>Open Swap settings</button>
-        </div></details>
-        {outside.length > 0 && <div className="notice warn">These leave dates are outside the imported weeks: {outside.map(formatDateLong).join(', ')}. Import those weeks before searching.</div>}
-        {pastWarning && <div className="notice warn"><b>{pastWarning}</b></div>}
-        <div className="row"><button type="button" className="primary" disabled={running || !staffId || leaveDates.length === 0 || outside.length > 0} onClick={() => runSearch()}>{running ? 'Searching…' : 'Find swaps'}</button>{running && <button type="button" onClick={() => { worker.current?.terminate(); if (timer.current) window.clearInterval(timer.current); setRunning(false); setProgress(''); }}>Stop search</button>}</div>
-        {running && <div className="notice" role="status"><b>{progress}</b><div className="small muted">{seconds} seconds. You can keep using this page while the search runs.</div></div>}
-        {error && <div className="notice bad">The search could not be completed: {error}</div>}
+        </div></details>}
+        {wizardStep === 2 && outside.length > 0 && <div className="notice warn">These leave dates are outside the imported weeks: {outside.map(formatDateLong).join(', ')}. Import those weeks before searching.</div>}
+        {wizardStep === 2 && pastWarning && <div className="notice warn"><b>{pastWarning}</b></div>}
+        {wizardStep === 6 && <>{running && <button type="button" onClick={() => { worker.current?.terminate(); if (timer.current) window.clearInterval(timer.current); worker.current = undefined; timer.current = undefined; setRunning(false); setProgress('Search stopped. Showing the options found so far.'); }}>Stop search</button>}
+        {running && <div className="notice" role="status"><b>{progress}</b><div className="small muted">{seconds} seconds.</div></div>}
+        {error && <div className="notice bad">The search could not be completed: {error}</div>}</>}
       </div>}
       </>}
-      {searchType === 'leave' && !!data.recentSearches?.length && <section className="swap-recent"><h2>Recent searches</h2><div className="stack">{data.recentSearches.map((recent, index) => <button type="button" className="card swap-recent-search" key={`${JSON.stringify(recent)}-${index}`} onClick={() => rerunRecent(recent)}><b>{doctorName(staff, recent.staffId)}</b><span>{recent.leaveDates.map(formatDateLong).join(', ')}</span><small>{recent.askMode === 'only' ? 'Only chosen people' : recent.askMode === 'prefer' ? 'Chosen people first' : 'Everyone'} · up to {recent.maxChain} people</small></button>)}</div></section>}
-      {searchType === 'leave' && <div className="notice swap-disclaimer">These are options to discuss, not approved swaps. Check the shifts in MediRota first, then arrange and record the swap in the usual way.</div>}
-      {searchType === 'dayJob' && dayJobResult ? <DayJobResults result={dayJobResult} date={dayJobDate} requesterName={doctorName(staff, staffId)} /> : visibleResult && <Results result={visibleResult.value} staff={staff} requesterId={visibleResult.inputs.staffId} snapshot={data.snapshot} decline={id => decline(id, visibleResult.inputs)} findLongDay={date => findLongDay(date, visibleResult.inputs)} loadMore={loadMore} loading={running} go={go} />}
+      {searchType === 'leave' && wizardStep === 1 && !!data.recentSearches?.length && <section className="swap-recent"><h2>Recent searches</h2><div className="stack">{data.recentSearches.slice(0, 5).map((recent, index) => <button type="button" className="card swap-recent-search" key={`${JSON.stringify(recent)}-${index}`} onClick={() => rerunRecent(recent)}><b>{doctorName(staff, recent.staffId)}</b><span>{recent.leaveDates.map(formatDateLong).join(', ')}</span><small>{recent.askMode === 'only' ? 'Only chosen people' : recent.askMode === 'prefer' ? 'Chosen people first' : 'Everyone'} · up to {recent.maxChain} people</small><span>Start from this</span></button>)}</div></section>}
+      {searchType === 'leave' && wizardStep === 6 && <div className="notice swap-disclaimer">These are options to discuss, not approved swaps. Check the shifts in MediRota first, then arrange and record the swap in the usual way.</div>}
+      {wizardStep === 6 && visibleResult?.value.stoppedEarly === 'time' && <div className="notice" role="status">Showing the best options found in 60 seconds. <button type="button" disabled={running} onClick={() => runSearch(visibleResult.inputs, {}, undefined, undefined, true)}>Keep looking</button></div>}
+      {searchType === 'dayJob' && wizardStep === 3 && dayJobResult ? <DayJobResults result={dayJobResult} date={dayJobDate} requesterName={doctorName(staff, staffId)} /> : searchType === 'leave' && wizardStep === 6 && visibleResult && <Results result={visibleResult.value} staff={staff} requesterId={visibleResult.inputs.staffId} snapshot={data.snapshot} decline={id => decline(id, visibleResult.inputs)} findLongDay={date => findLongDay(date, visibleResult.inputs)} loadMore={loadMore} loading={running} go={go} />}
+      {wizardStep === 6 && <button type="button" onClick={() => moveStep(2)}>Change my answers</button>}
+      <footer className="setup-wizard-actions swap-wizard-footer">
+        {wizardStep > 1 && wizardStep < stepTitles.length && <button type="button" onClick={() => moveStep(advanceSwapWizard(searchType, wizardStep, 'back'))}>Back</button>}
+        {wizardStep === 3 || (searchType === 'leave' && wizardStep === 5) ? <button type="button" className="link-button" onClick={() => moveStep(advanceSwapWizard(searchType, wizardStep, 'skip'))}>Skip</button> : null}
+        {wizardStep === 2 && noSwapNeeded
+          ? <button type="button" className="primary" onClick={() => moveStep(advanceSwapWizard(searchType, wizardStep, 'done', noSwapNeeded))}>Done</button>
+          : wizardStep === 5 && searchType === 'leave'
+            ? <button type="button" className="primary" disabled={!staffId || !leaveDates.length || outside.length > 0} onClick={() => { moveStep(6); runSearch(); }}>Find swaps</button>
+            : wizardStep < stepTitles.length && <button type="button" className="primary" disabled={(wizardStep === 1 && !staffId) || (wizardStep === 2 && searchType === 'leave' && (!leaveDates.length || outside.length > 0))} onClick={() => moveStep(advanceSwapWizard(searchType, wizardStep, 'next', noSwapNeeded))}>Next</button>}
+      </footer>
+      </section>
     </>
   );
 }

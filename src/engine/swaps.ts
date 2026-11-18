@@ -20,6 +20,8 @@ export interface RotaSnapshot {
   importedAt: Record<ISODate, string>;
   /** True when imports from MediRota preserve its [Extra] marker. */
   extrasTagged?: true;
+  /** Explicit shift-specific unavailability imported alongside calendar days. */
+  unavailability?: RotaProblem['unavailability'];
 }
 
 export interface SwapSettings {
@@ -106,6 +108,8 @@ export interface SwapRequest {
   noAlertsOnly?: boolean;
   askMode?: 'everyone' | 'only' | 'prefer';
   askStaffIds?: string[];
+  /** Optional wall-clock search budget. Omitted means the historical unlimited search. */
+  deadlineMs?: number;
 }
 
 export type ReturnWindow =
@@ -208,6 +212,8 @@ export interface SwapResult {
   morePlanSizes?: (2 | 3 | 4)[];
   /** True if a search limit was hit, so options may be missing. */
   truncated: boolean;
+  stoppedEarly?: 'time';
+  notCheckedYet?: { unit: SwapUnit; staffId: string }[];
 }
 
 export interface SwapDateClassification {
@@ -433,6 +439,7 @@ function makeValidationContext(profile: Profile, snapshot: RotaSnapshot, setting
       workingDates.set(date, set);
     }
   }
+  if (snapshot.unavailability?.length) unavailable.push(...snapshot.unavailability);
 
   const mkRecord = (staffId: string, dates: ISODate[], kind: UnitKind, activity: string): UnitRecord | undefined => {
     const assignments = dates.map(date => descriptors.get(`${staffId}|${date}`)).filter((a): a is Assignment => !!a);
@@ -1021,7 +1028,12 @@ function compareChains(a: SwapChain, b: SwapChain): number {
 }
 
 /** Find possible cycles of shift exchanges without mutating profile, snapshot or settings. */
-export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: SwapSettings, request: SwapRequest): SwapResult {
+export interface SwapSearchProgress { stage: string; optionsFound: number; partialResult?: SwapResult }
+
+export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: SwapSettings, request: SwapRequest, onProgress?: (progress: SwapSearchProgress) => void): SwapResult {
+  const searchStarted = Date.now();
+  const timeExpired = () => request.deadlineMs != null && Date.now() - searchStarted >= request.deadlineMs;
+  const progress = (stage: string, optionsFound = 0, partialResult?: SwapResult) => onProgress?.({ stage, optionsFound, ...(partialResult ? { partialResult } : {}) });
   const state: SearchState = { limits: new Set() };
   const context = makeValidationContext(profile, snapshot, settings, request);
   const result: SwapResult = { clashes: [], sortByHand: [], requestAsLeave: [], extraShiftsToHandBack: [], plans: [], ruledOut: [], leaveWarnings: [], existingShortages: [], noRulesWarning: !activeRules(profile).some(rule => WORK_TIME_RULES.has(rule.type) || (rule.type === 'count' && !!rule.perWeekAverage)), truncated: false };
@@ -1072,11 +1084,14 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
   };
   const baselineAssignments = validationContext.assignments;
   const baselineProblem = { ...context.problem, unavailability: relevantAvailability(context, baselineAssignments) };
-  const baselineFull = validate(baselineProblem, baselineAssignments);
+  const baselineFull = validate(baselineProblem, baselineAssignments, { skipFairness: true });
   const baselineFullCounts = violationCounts(baselineFull.violations, context.profile);
+  progress('Preparing swaps');
 
   const validationReason = new Map<string, string>();
   const validChainsByClash = new Map<string, SwapChain[]>();
+  const checkedStaffByClash = new Map<string, Set<string>>();
+  const completedClashes = new Set<string>();
   const cappedClashes = new Set<string>();
   const planLimitedChainKeys = new Set<string>();
   const globallyUsedChainKeys = new Set<string>();
@@ -1090,7 +1105,7 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
   const staffBaseline = (staffId: string) => {
     const cached = staffBaselineCache.get(staffId);
     if (cached) return cached;
-    const report = validate(context.problem, assignmentsByStaff.get(staffId) ?? [], { staffIds: [staffId] });
+    const report = validate(context.problem, assignmentsByStaff.get(staffId) ?? [], { staffIds: [staffId], individualOnly: true });
     const counts = violationCounts(report.violations.filter(violation => violation.staffId === staffId), context.profile);
     staffBaselineCache.set(staffId, counts);
     return counts;
@@ -1142,7 +1157,7 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
         !movedIn.some(move => move.date === item.date) &&
         !(item.reason === 'Training' && staffId !== request.staffId && receives.some(record => record.unit.kind === 'longDay' && record.unit.dates.includes(item.date))) &&
         (item.kind !== 'nonWorking' || !receivedDates.has(item.date)));
-      const report = validate({ ...context.problem, unavailability: availability }, assignments, { staffIds: [staffId] });
+      const report = validate({ ...context.problem, unavailability: availability }, assignments, { staffIds: [staffId], individualOnly: true });
       const newViolations = addedViolations(
         report.violations.filter(violation => violation.staffId === staffId),
         staffBaseline(staffId),
@@ -1156,7 +1171,10 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
     return { ok: true };
   };
 
+  let timedOut = false;
   for (const clash of result.clashes) {
+    if (timeExpired()) { timedOut = true; break; }
+    progress('Building swap chains', [...validChainsByClash.values()].reduce((sum, chains) => sum + chains.length, 0));
     const root = startUnit(clash);
     const candidatesByDistance = [...futureRecords].sort((a, b) => {
       const distanceA = Math.min(...a.unit.dates.flatMap(date => clash.dates.map(clashDate => isoDistance(date, clashDate))));
@@ -1165,11 +1183,13 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
     });
     const found: SwapChain[] = [];
     const keys = new Set<string>();
+    const checkedStaff = new Set<string>();
     // Same-day pairs are direct only and bypass return-date availability and hours matching.
     if (clash.kind === 'longDay' && clash.dayType === 'weekday' && clash.dates.length === 1) {
       const date = clash.dates[0];
       for (const candidate of futureRecords) {
         const staffId = candidate.unit.staffId;
+        if (candidate.unit.dates[0] === date) checkedStaff.add(staffId);
         if (staffId === request.staffId || profile.staff.find(person => person.id === staffId)?.locum || candidate.unit.kind !== 'dayShift' || candidate.unit.dates[0] !== date) continue;
         const sessions = snapshot.days[staffId]?.[date]?.sessions;
         if (!sessions?.includes('am') || !sessions.includes('pm')) continue;
@@ -1188,6 +1208,7 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
     }
     const maxPeople = Math.min(4, Math.max(2, settings.maxChain));
     for (let people = 2; people <= maxPeople; people++) {
+      progress(`Building ${people}-person swap chains`, found.length);
       const budget = people > 2 ? (clash.kind === 'nightBlock' ? NIGHT_LONG_CHAIN_BUDGETS : LONG_CHAIN_BUDGETS)[people as 3 | 4] : undefined;
       const phases = budget && preferChosen
         ? [{ candidates: candidatesByDistance.filter(candidate => chosenStaff.has(candidate.unit.staffId)), chosenOnly: true, skipChosen: false }, { candidates: candidatesByDistance, chosenOnly: false, skipChosen: true }]
@@ -1197,7 +1218,7 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
         let phaseValidations = 0;
         let phaseCapped = false;
         const walk = (links: SwapChain['links']) => {
-          if (phaseCapped) return;
+          if (phaseCapped || timeExpired()) { if (timeExpired()) timedOut = true; return; }
           const last = links[links.length - 1];
           const current = recordsById.get(unitId(last.gives))!;
           if (links.length === people) {
@@ -1228,6 +1249,7 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
             return;
           }
           for (const candidate of phase.candidates) {
+            if (timeExpired()) { timedOut = true; return; }
             if (budget && ++phaseSteps > budget.steps) {
               phaseCapped = true;
               cappedClashes.add(unitId(clash));
@@ -1235,6 +1257,7 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
               return;
             }
             if (candidate.unit.staffId === request.staffId || profile.staff.find(person => person.id === candidate.unit.staffId)?.locum || links.some(link => link.staffId === candidate.unit.staffId)) continue;
+            checkedStaff.add(candidate.unit.staffId);
             if (receiveReason(candidate.unit.staffId, current.unit, snapshot, settings, request, profile)) continue;
             const match = compatible(current, candidate, settings, request);
             if (!match.ok) continue;
@@ -1247,6 +1270,9 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
     }
     found.sort((a, b) => preferChosen ? Number(chainUsesChosen(b)) - Number(chainUsesChosen(a)) || compareChains(a, b) : compareChains(a, b));
     validChainsByClash.set(unitId(clash), found);
+    checkedStaffByClash.set(unitId(clash), checkedStaff);
+    if (!timedOut) completedClashes.add(unitId(clash));
+    if (timedOut) break;
   }
 
   const orderedClashes = [...result.clashes];
@@ -1296,7 +1322,7 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
     candidatePlans.push(plan);
   };
   const combine = (index: number, cleared: SwapUnit[]) => {
-    if (combinationCapped) return;
+    if (combinationCapped || timeExpired()) { if (timeExpired()) timedOut = true; return; }
     if (++planSteps > MAX_PLAN_STEPS) {
       combinationCapped = true;
       state.limits.add('planSample');
@@ -1314,7 +1340,7 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
     }
     combine(index + 1, cleared);
   };
-  combine(0, []);
+  if (!timedOut) combine(0, []);
   const longRuns: SwapUnit[][] = [];
   for (const clash of orderedClashes.filter(unit => unit.kind === 'longDay').sort((a, b) => a.dates[0].localeCompare(b.dates[0]))) {
     const current = longRuns.at(-1);
@@ -1382,7 +1408,9 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
   const cappedSizes = new Set<2 | 3 | 4>();
   const directMainFull = () => validCountsBySize.get(2)! >= requestedBySize.get(2)!;
   const reservedDirectFull = () => reservedValid.missedTraining >= RESERVED_DIRECT_PER_KIND && reservedValid.nwd >= RESERVED_DIRECT_PER_KIND;
+  progress('Checking complete swaps', 0);
   for (let candidateIndex = 0; candidateIndex < rankedCandidates.length; candidateIndex++) {
+    if (timeExpired()) { timedOut = true; break; }
     const plan = rankedCandidates[candidateIndex];
     const size = planSize(plan);
     const target = requestedBySize.get(size)!;
@@ -1410,7 +1438,12 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
     const packageResult = nightPackageForChains(plan.chains, snapshot, settings, request, profile);
     const assignments = movedAssignments(validationContext, plan.chains, packageResult.movedShifts);
     const addedAssignmentLabels = swapAddedAssignmentLabels(validationContext, plan.chains, packageResult.movedShifts);
-    const full = validate({ ...context.problem, unavailability: relevantAvailability(validationContext, assignments, plan.chains, packageResult.movedShifts) }, assignments);
+    const affectedStaffIds = [...new Set([
+      request.staffId,
+      ...plan.chains.flatMap(chain => chain.links.map(link => link.staffId)),
+      ...packageResult.movedShifts.flatMap(move => [move.fromStaffId, move.toStaffId]),
+    ])];
+    const full = validate({ ...context.problem, unavailability: relevantAvailability(validationContext, assignments, plan.chains, packageResult.movedShifts) }, assignments, { scopeStaffIds: affectedStaffIds, skipFairness: true });
     const newViolations = addedViolations(full.violations, baselineFullCounts, context.profile);
     const rejected = newViolations.find(violation => violationDisposition(violation, context.profile) === 'reject');
     if (rejected) {
@@ -1433,7 +1466,7 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
         .filter(date => snapshot.days[request.staffId]?.[date]?.status === 'dayJob' && !leaveDates.has(date) && !movedDates.has(date));
       for (const date of candidateDates) {
         const withoutDay = assignments.filter(assignment => !(assignment.staffId === request.staffId && assignment.date === date));
-        const suggestionReport = validate({ ...context.problem, unavailability: relevantAvailability(validationContext, withoutDay, plan.chains, packageResult.movedShifts) }, withoutDay);
+        const suggestionReport = validate({ ...context.problem, unavailability: relevantAvailability(validationContext, withoutDay, plan.chains, packageResult.movedShifts) }, withoutDay, { scopeStaffIds: affectedStaffIds, skipFairness: true });
         const suggestionAdded = addedViolations(suggestionReport.violations, baselineFullCounts, context.profile);
         if (!suggestionAdded.some(isRequester72)) {
           const activity = snapshot.days[request.staffId]?.[date]?.activity ?? 'normal working day';
@@ -1469,6 +1502,11 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
     const warningDates = [...new Set([...request.leaveDates, ...movedDates])].filter(date => knownDates.has(date));
     plan.warnings = minimumWarningsForSwap(context.workingDates, counts, warningDates, settings);
     validPlans.push(plan);
+    const partialNotChecked = result.clashes.flatMap(unit => profile.staff
+      .filter(person => person.id !== request.staffId && !person.locum && (request.askMode !== 'only' || (request.askStaffIds ?? []).includes(person.id)))
+      .filter(person => !completedClashes.has(unitId(unit)) && !checkedStaffByClash.get(unitId(unit))?.has(person.id))
+      .map(person => ({ unit, staffId: person.id })));
+    progress('Checking complete swaps', validPlans.length, { ...result, plans: [...validPlans].sort((a, b) => preferChosen ? Number(!!b.chosenPeople) - Number(!!a.chosenPeople) || rankPlans(a, b) : rankPlans(a, b)), ...(partialNotChecked.length ? { notCheckedYet: partialNotChecked } : {}) });
     if (!plan.blockLength) {
       validCountsBySize.set(size, validCountsBySize.get(size)! + 1);
       if (size === 2 && reserveDirectKinds) {
@@ -1513,10 +1551,13 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
   if (cappedSizes.size) state.limits.add('planCap');
   result.morePlanSizes = cappedSizes.size ? [...cappedSizes].sort() : undefined;
   result.plans = diversePlans;
+  if (timedOut || timeExpired()) result.stoppedEarly = 'time';
   for (const plan of result.plans) for (const chain of plan.chains) for (const link of chain.links.slice(1)) globallyUsedChainKeys.add(`${unitId(chain.links[0].gives)}|${link.staffId}`);
   const allStaff = profile.staff.filter(staff => staff.id !== request.staffId && !staff.locum && (request.askMode !== 'only' || (request.askStaffIds ?? []).includes(staff.id)));
+  const notCheckedYet: { unit: SwapUnit; staffId: string }[] = [];
   for (const clash of result.clashes) for (const staff of allStaff) {
     const id = `${unitId(clash)}|${staff.id}`;
+    if (!completedClashes.has(unitId(clash)) && !checkedStaffByClash.get(unitId(clash))?.has(staff.id)) { notCheckedYet.push({ unit: clash, staffId: staff.id }); continue; }
     if (globallyUsedChainKeys.has(id)) continue;
     const plain = plainRuledOutReason(staff.id, clash, snapshot, settings, request, profile);
     const sameDayCandidate = clash.kind === 'longDay' && clash.dayType === 'weekday' && clash.dates.length === 1 && snapshot.days[staff.id]?.[clash.dates[0]]?.status === 'dayJob' &&
@@ -1528,7 +1569,9 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
         : plain ?? { group: 'other' as const, reason: validationReason.get(id) ?? (cappedClashes.has(unitId(clash)) ? 'No valid chain found before the search limit.' : 'No compatible return shifts complete a valid chain.') };
     result.ruledOut.push({ unit: clash, staffId: staff.id, ...reason });
   }
+  if (notCheckedYet.length) result.notCheckedYet = notCheckedYet;
   result.limits = state.limits.size ? [...state.limits] : undefined;
   result.truncated = state.limits.size > 0;
+  progress('Search complete', result.plans.length, result);
   return result;
 }
