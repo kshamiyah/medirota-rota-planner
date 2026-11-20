@@ -207,7 +207,7 @@ export function swapDateSummary(snapshot: RotaSnapshot, settings: SwapSettings, 
   const summary: SwapDateSummary = { clashes: [], swapCount: 0, requestAsLeave: [], sortByHand: [], extraShiftsToHandBack: [] };
   const classified = classifySwapDates(snapshot, settings, { staffId, leaveDates, leaveType: 'annual', includeNormalDays, today });
   const label = (date: ISODate, fallback: string) => days[date]?.activity || fallback;
-  summary.clashes = classified.clashes.map(item => ({ date: item.date, label: label(item.date, item.kind === 'nightBlock' ? 'Night' : item.kind === 'longDay' ? 'Long day' : 'Normal working day') }));
+  summary.clashes = classified.clashes.map(item => ({ date: item.date, label: label(item.date, item.kind === 'nightBlock' ? 'Night' : item.kind === 'longDay' ? 'Long day' : 'Day job') }));
   const selectedNightDates = new Set(classified.clashes.filter(item => item.kind === 'nightBlock').map(item => item.date));
   let nightBlocks = 0;
   for (const date of [...selectedNightDates].sort()) {
@@ -215,7 +215,7 @@ export function swapDateSummary(snapshot: RotaSnapshot, settings: SwapSettings, 
     nightBlocks++;
   }
   summary.swapCount = classified.clashes.filter(item => item.kind !== 'nightBlock').length + nightBlocks;
-  summary.requestAsLeave = classified.requestAsLeave.map(item => ({ date: item.date, label: label(item.date, 'Normal working day') }));
+  summary.requestAsLeave = classified.requestAsLeave.map(item => ({ date: item.date, label: label(item.date, 'Day job') }));
   summary.sortByHand = classified.sortByHand.map(item => ({ date: item.date, label: label(item.date, 'Part shift') }));
   summary.extraShiftsToHandBack = classified.extraShiftsToHandBack.map(item => ({ date: item.date, label: item.activity || 'Extra shift' }));
   const selected = new Set(leaveDates);

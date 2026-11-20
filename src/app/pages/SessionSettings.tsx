@@ -70,7 +70,7 @@ export function SessionSettingsPanel() {
   return <div className="sessions-settings stack">
     <header className="sessions-section-head"><p className="eyebrow">Comparison setup</p><h2>Sessions</h2><p className="muted">Choose what counts as each session, how grades are compared and how work is shared out.</p></header>
 
-    <section className="session-settings-block">
+    <section className="session-settings-block" id="same-consultants">
       <div className="session-settings-title"><h3>Same consultants</h3><p className="small muted">Keep selected groups on familiar consultant lists in Fairer rota. Consultant pairs are optional and are tried first.</p></div>
       <div className="session-grade-options"><span className="field-label">Groups</span>{settings.groups.map(group => <label key={group.id}><input type="checkbox" checked={consistency.groupIds.includes(group.id)} onChange={event => save(value => { value.sameConsultants ??= { groupIds: [], typeIds: [] }; value.sameConsultants.groupIds = event.target.checked ? [...new Set([...value.sameConsultants.groupIds, group.id])] : value.sameConsultants.groupIds.filter(id => id !== group.id); })} />{group.name}</label>)}</div>
       <div className="session-grade-options"><span className="field-label">Types</span>{consistencyTypes.map(type => <label key={type.id}><input type="checkbox" checked={consistency.typeIds.includes(type.id)} onChange={event => save(value => { value.sameConsultants ??= { groupIds: [], typeIds: [] }; value.sameConsultants.typeIds = event.target.checked ? [...new Set([...value.sameConsultants.typeIds, type.id])] : value.sameConsultants.typeIds.filter(id => id !== type.id); })} />{type.name}</label>)}</div>
@@ -85,7 +85,7 @@ export function SessionSettingsPanel() {
       {analysis?.ignored.length ? <p className="session-ignored small muted">Not counted: {analysis.ignored.map(item => `${item.activity} (${item.count})`).join(', ')}.</p> : null}
     </section>
 
-    <section className="session-settings-block">
+    <section className="session-settings-block" id="comparison-groups">
       <div className="row session-settings-title"><div><h3>Comparison groups</h3><p className="small muted">Assign each grade to one group. Split a group to compare its grades separately.</p></div><button type="button" onClick={addGroup}>Add group</button></div>
       <div className="session-groups-list">{settings.groups.map(group => <article className="session-group-row" key={group.id}>
         <div className="session-group-heading"><label className="field">Group name<input value={group.name} onChange={event => save(value => { value.groups.find(item => item.id === group.id)!.name = event.target.value; })} /></label><button type="button" onClick={() => splitGroup(group)}>{group.subGroups?.length ? 'Merge sub-groups' : 'Split into sub-groups'}</button><button type="button" className="link-button danger" onClick={() => removeGroup(group.id)}>Remove group</button></div>
@@ -104,7 +104,7 @@ export function SessionSettingsPanel() {
       })}</div>}
     </section>
 
-    <section className="session-settings-block">
+    <section className="session-settings-block" id="ratios">
       <div className="session-settings-title"><h3>Ratios</h3><p className="small muted">Parts set how each group shares its session-type target. Every new group starts at 1.</p></div>
       <SessionRatioTable settings={settings} onChange={(typeId, groupId, ratio) => save(value => { value.ratios[typeId] ??= {}; value.ratios[typeId][groupId] = ratio; })} />
     </section>

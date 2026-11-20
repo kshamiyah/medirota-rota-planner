@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Shifts } from './Shifts';
 import { Places } from './Places';
 import { Staffing } from './Staffing';
@@ -23,9 +23,10 @@ export const SETTINGS_GROUPS = [
 ] as const;
 export type SettingsSection = (typeof SETTINGS_GROUPS)[number]['sections'][number][0];
 
-export function SettingsPage({ go, initialSection, onSectionChange, onRunSetup, returnToSetup }: { go: (page: Page) => void; initialSection?: SettingsSection; onSectionChange?: (section: SettingsSection) => void; onRunSetup: () => void; returnToSetup?: () => void }) {
+export function SettingsPage({ go, initialSection, initialAnchor, onSectionChange, onRunSetup, returnToSetup }: { go: (page: Page) => void; initialSection?: SettingsSection; initialAnchor?: string; onSectionChange?: (section: SettingsSection) => void; onRunSetup: () => void; returnToSetup?: () => void }) {
   const [section, setSectionState] = useState<SettingsSection>(initialSection ?? 'you');
   const setSection = (next: SettingsSection) => { setSectionState(next); onSectionChange?.(next); };
+  useEffect(() => { if (!initialAnchor) return; requestAnimationFrame(() => document.getElementById(initialAnchor)?.scrollIntoView({ block: 'start' })); }, [initialAnchor, section]);
   const content = section === 'you' ? <YouSection changeGrade={() => setSection('people')} />
     : section === 'people' ? <People /> : section === 'shifts' ? <Shifts /> : section === 'places' ? <Places />
       : section === 'staffing' ? <Staffing /> : section === 'rules' ? <Rules /> : section === 'sessions' ? <SessionSettingsPanel />
@@ -42,7 +43,7 @@ function YouSection({ changeGrade }: { changeGrade: () => void }) {
   const visibleStaff = ws.profile.staff.filter(person => !person.locum || person.regularLocum);
   const me = visibleStaff.find(person => person.id === ws.me) ?? visibleStaff[0];
   const grade = me ? gradeForStaff(me, ws.profile) : undefined;
-  return <section className="settings-you"><p className="eyebrow">Your workspace</p><h2>You</h2><div className="settings-you-row"><div><h3>Who are you?</h3><p className="muted">Choose how this workspace is used.</p></div><fieldset className="settings-role-choice" aria-label="Who are you?"><label><input type="radio" name="workspace-role" checked={(ws.role ?? 'doctor') === 'doctor'} onChange={() => update(workspace => { setWorkspaceRole(workspace, 'doctor'); })} /> I'm a doctor on this rota</label><label><input type="radio" name="workspace-role" checked={ws.role === 'coordinator'} onChange={() => update(workspace => { setWorkspaceRole(workspace, 'coordinator'); })} /> I make the rota (coordinator)</label></fieldset></div>{ws.role !== 'coordinator' && <><div className="settings-you-row"><div><h3>Viewing as</h3><p className="muted">Choose the doctor shown first on Overview.</p></div><ViewingAs /></div>
+  return <section className="settings-you"><p className="eyebrow">Your workspace</p><h2>You</h2><div className="settings-you-row"><div><h3>Who are you?</h3><p className="muted">Choose how this workspace is used.</p></div><fieldset className="settings-role-choice" aria-label="Who are you?"><label><input type="radio" name="workspace-role" checked={(ws.role ?? 'doctor') === 'doctor'} onChange={() => update(workspace => { setWorkspaceRole(workspace, 'doctor'); })} /> A doctor on this rota</label><label><input type="radio" name="workspace-role" checked={ws.role === 'coordinator'} onChange={() => update(workspace => { setWorkspaceRole(workspace, 'coordinator'); })} /> I make the rota (coordinator)</label></fieldset></div>{ws.role !== 'coordinator' && <><div className="settings-you-row"><div><h3>Viewing as</h3><p className="muted">Choose the doctor shown first on Overview.</p></div><ViewingAs /></div>
     <div className="settings-you-row"><div><h3>Your grade</h3><p>{me ? grade ?? 'No grade assigned' : 'Choose who you are in the setup wizard.'}</p></div><button type="button" onClick={changeGrade}>Change grade in People</button></div>
     <p className="small muted">Other doctors on the rota are managed in <button type="button" className="link-button" onClick={changeGrade}>People</button>.</p></>}
   </section>;

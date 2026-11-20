@@ -12,6 +12,7 @@ describe('Stage 5 search form helpers', () => {
     expect(keyboardCalendarDate('2026-11-10', 'ArrowDown')).toBe('2026-11-17');
     expect(calendarMonthDates('2026-11').filter(Boolean)).toHaveLength(30);
     expect(shortRotaLabel('zero')).toBe('Zero Day');
+    expect(shortRotaLabel('dayJob')).toBe('Day job');
     expect(rotaShortCode('longDay')).toBe('LD');
     expect(initialCalendarMonth(['2026-10-26', '2026-11-02'], '2026-11-06')).toBe('2026-11');
     expect(initialCalendarMonth(['2026-12-07', '2026-12-14'], '2026-11-06')).toBe('2026-12');

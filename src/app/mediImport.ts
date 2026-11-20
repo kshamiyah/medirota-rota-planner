@@ -404,7 +404,7 @@ export function applyImport(w: Workspace, plan: ImportPlan): ImportResult {
   const notes = plan.activityWeeks.flatMap(x => x.activities.map(a => a.description)).join(' ');
   const times = timesInNote(notes);
   const need = new Set(plan.activities.map(a => a.treat));
-  if (need.has('dayjob') && !shiftFor(p.shiftTypes, 'dayjob')) { const [start, end] = times.day ?? ['08:00', '17:30']; p.shiftTypes.push({ id: newId('shift'), name: 'Normal working day', start, end }); }
+  if (need.has('dayjob') && !shiftFor(p.shiftTypes, 'dayjob')) { const [start, end] = times.day ?? ['08:00', '17:30']; p.shiftTypes.push({ id: newId('shift'), name: 'Day job', start, end }); }
   if (need.has('long') && !shiftFor(p.shiftTypes, 'long')) { const [start, end] = times.long ?? ['08:00', '20:30']; p.shiftTypes.push({ id: newId('shift'), name: 'Long Day', start, end }); }
   if (need.has('night') && !shiftFor(p.shiftTypes, 'night')) p.shiftTypes.push({ id: newId('shift'), name: 'Night', start: '20:00', end: '08:30' });
 

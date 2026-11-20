@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advanceSwapWizard, leaveNeedsNoSwap, showSwapSearchFormCard, swapWizardTitles } from '../src/app/swapWizard';
+import { advanceSwapWizard, leaveNeedsNoSwap, leaveStep5SkipStartsSearch, showSwapSearchFormCard, swapWizardTitles } from '../src/app/swapWizard';
 
 describe('Find swaps wizard flow', () => {
   it('shows six leave steps and a three-step day-job path', () => {
@@ -15,6 +15,13 @@ describe('Find swaps wizard flow', () => {
     expect(advanceSwapWizard('dayJob', 2, 'next')).toBe(3);
     expect(advanceSwapWizard('dayJob', 2, 'back')).toBe(1);
     expect(advanceSwapWizard('leave', 6, 'back')).toBe(5);
+  });
+
+  it('starts a search when Skip is pressed on leave step 5', () => {
+    expect(leaveStep5SkipStartsSearch('leave', 5)).toBe(true);
+    expect(leaveStep5SkipStartsSearch('leave', 3)).toBe(false);
+    expect(leaveStep5SkipStartsSearch('dayJob', 5)).toBe(false);
+    expect(advanceSwapWizard('leave', 5, 'skip')).toBe(6);
   });
 
   it('offers Done only when all selected dates need no swap', () => {

@@ -23,6 +23,23 @@ export function leaveCheckDateLabel(dates: ISODate[]): string {
   return `${formatDateLong(dates[0])} – ${formatDateLong(dates.at(-1)!)}`;
 }
 
+export function leaveCheckDayLine(date: ISODate, activity: string, outcome: string, status?: string, outside = false): string {
+  const label = new Date(`${date}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const rawShift = activity.trim();
+  const statusShift: Record<string, string> = { longDay: 'long day', night: 'night', dayJob: 'day job', zero: 'zero day', leave: 'leave', training: 'training', partShift: 'part shift' };
+  const shift = statusShift[status ?? ''] ?? (({ 'normal working day': 'day job' } as Record<string, string>)[rawShift.toLocaleLowerCase('en-GB')] ?? rawShift);
+  const description = outcome === 'Needs a swap' ? `${shift || 'This shift'}, needs a swap`
+    : outcome === 'Book as leave' ? `${shift || 'Day job'}, book as annual leave`
+    : outcome === 'Sort out by hand' ? `${shift || 'Part shift'}, needs sorting by hand`
+    : outcome === 'Hand back (extra)' ? `${rawShift || 'Extra shift'}, hand back`
+    : status === 'zero' ? 'already off'
+    : status === 'training' ? `${shift || 'Training'}, already off`
+    : status === 'leave' ? `${shift || 'Leave'}, already off`
+    : outcome === 'Nothing on the rota' ? 'nothing on the rota'
+    : 'already off';
+  return `${label}: ${outside ? `${description}, outside the imported weeks` : description}.`;
+}
+
 export function analyseLeaveCheck(profile: Profile, snapshot: RotaSnapshot, swapSettings: SwapSettings, staff: Staff[], sessions: SessionsSettings, staffId: string, dates: ISODate[], includeNormalDays: boolean, today: ISODate): LeaveCheck | undefined {
   if (!staffId || !dates.length) return undefined;
   const summary = swapDateSummary(snapshot, swapSettings, staffId, dates, includeNormalDays, today);

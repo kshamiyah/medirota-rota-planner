@@ -7,7 +7,7 @@ import { formatDateLong, WEEKDAY_NAMES } from './ui';
 type Mode = 'leave' | 'cantWork';
 
 export function shortRotaLabel(status: string): string {
-  return ({ longDay: 'Long day', night: 'Night', dayJob: 'Normal day', zero: 'Zero Day', leave: 'Leave', training: 'Training', partShift: 'Part shift', available: 'Available', notAvailable: 'Not available', blank: '' } as Record<string, string>)[status] ?? status;
+  return ({ longDay: 'Long day', night: 'Night', dayJob: 'Day job', zero: 'Zero Day', leave: 'Leave', training: 'Training', partShift: 'Part shift', available: 'Available', notAvailable: 'Not available', blank: '' } as Record<string, string>)[status] ?? status;
 }
 
 export function rotaShortCode(status: string): string {
@@ -18,8 +18,8 @@ export function initialCalendarMonth(importedWeeks: ISODate[], today: ISODate, s
   if (selected) return selected.slice(0, 7);
   const dates = [...new Set(importedWeeks.flatMap(start => dateRange(start, addDays(start, 6))))].sort();
   const current = today.slice(0, 7);
-  if (dates.some(date => date.startsWith(current))) return current;
-  return (dates.find(date => date >= today) ?? dates.at(-1) ?? today).slice(0, 7);
+  const first = dates[0];
+  return first && today < first ? first.slice(0, 7) : current;
 }
 
 function localToday(): ISODate {
@@ -65,14 +65,14 @@ export function SwapDateCalendar({ snapshot, staffId, leaveDates, cantWorkDates,
 }) {
   const imported = Object.keys(snapshot.importedAt).sort();
   const today = localToday();
-  const [month, setMonth] = useState(initialCalendarMonth(imported, today, selectionMode === 'single' ? selectedDate : leaveDates[0]));
+  const [month, setMonth] = useState(initialCalendarMonth(imported, today));
   const [mode, setMode] = useState<Mode>('leave');
   const [rangeMode, setRangeMode] = useState(false);
   const [rangeStart, setRangeStart] = useState<ISODate>();
   const anchor = useRef<ISODate | undefined>(undefined);
   const dragging = useRef(false);
   const importedDates = useMemo(() => new Set(imported.flatMap(start => dateRange(start, addDays(start, 6)))), [imported]);
-  useEffect(() => { setMonth(initialCalendarMonth(imported, selectionMode === 'single' ? (imported[0] ?? today) : today, selectionMode === 'single' ? selectedDate : leaveDates[0])); }, [staffId, selectionMode === 'single' ? selectedDate : leaveDates[0], imported.join('|'), today]);
+  useEffect(() => { setMonth(initialCalendarMonth(imported, today)); }, [staffId, imported.join('|'), today]);
   const cells = calendarMonthDates(month);
   const activeMode = forcedMode ?? mode;
   const value = activeMode === 'leave' ? leaveDates : cantWorkDates;

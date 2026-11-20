@@ -441,7 +441,7 @@ describe('Fairer rota consultant lists', () => {
     expect(fairerConsultantSetting(undefined, true)).toBe(true);
     expect(fairerConsultantSetting(undefined, false)).toBe(false);
     expect(fairerChangeLimitHint('none', 537)).toBe('');
-    expect(fairerChangeLimitHint(20, 537)).toBe('(107 of 537)');
+    expect(fairerChangeLimitHint(20, 537)).toBe('Move at most 107 of the 537 day sessions (20%)');
     expect(fairerGridInitialState()).toEqual({ open: false, changedOnly: true });
   });
 

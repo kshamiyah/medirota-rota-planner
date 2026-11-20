@@ -1,6 +1,14 @@
 import type { LeaveCheck } from './leaveCheck';
 
 export type SwapSearchType = 'leave' | 'dayJob';
+
+export function initialSwapRequesterId(role: string | undefined, me: string | undefined, visibleStaffIds: string[]): string {
+  return role !== 'coordinator' && me && visibleStaffIds.includes(me) ? me : '';
+}
+
+export function isColleagueSwapRequester(role: string | undefined, me: string | undefined, staffId: string): boolean {
+  return role !== 'coordinator' && !!staffId && staffId !== me;
+}
 export type SwapWizardAction = 'back' | 'next' | 'skip' | 'done';
 
 const LEAVE_TITLES = ['What do you need?', 'Which days?', 'Any days you can’t work in return?', 'Who would you ask?', 'How would you like to pay it back?', 'Results'];
@@ -21,6 +29,11 @@ export function advanceSwapWizard(type: SwapSearchType, step: number, action: Sw
   if (action === 'skip' && step === 5) return 6;
   if (action === 'next' && type === 'dayJob' && step === 2) return 3;
   return Math.min(swapWizardTitles(type).length, step + 1);
+}
+
+/** Step 5 Skip must start a search with the current answers, like Find swaps, without changing saved settings. */
+export function leaveStep5SkipStartsSearch(type: SwapSearchType, step: number): boolean {
+  return type === 'leave' && step === 5;
 }
 
 /** Step 6 (leave) / step 3 (day job) should not keep an empty search-form card once results are showing. */

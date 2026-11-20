@@ -96,10 +96,17 @@ describe('Planning an import', () => {
     // Nights and long days are booked; day jobs are left for the app to plan.
     expect(ws.fixed.map(f => f.date)).toEqual(['2026-11-02', '2026-11-03', '2026-11-02']);
     expect(ws.unavailability.map(u => [u.date, u.kind]).sort()).toEqual([['2026-11-03', 'other'], ['2026-11-04', 'nonWorking'], ['2026-11-06', 'leave']]);
-    expect(ws.profile.shiftTypes.map(s => s.name).sort()).toEqual(['Long Day', 'Night', 'Normal working day']);
+    expect(ws.profile.shiftTypes.map(s => s.name).sort()).toEqual(['Day job', 'Long Day', 'Night']);
     expect(ws.profile.demands.length).toBe(4);
     expect(ws.period.start).toBe('2026-11-02');
     expect(ws.profile.staff.find(s => s.name === 'Sam Lee')?.locum).toBe(true);
+  });
+
+  it('keeps an existing Normal working day shift name in a saved workspace', () => {
+    const ws = emptyWorkspace();
+    ws.profile.shiftTypes.push({ id: 'saved-day', name: 'Normal working day', start: '08:00', end: '17:00' });
+    applyImport(ws, planImport(ws, sample(), []));
+    expect(ws.profile.shiftTypes.find(shift => shift.id === 'saved-day')?.name).toBe('Normal working day');
   });
 
   it('a second import matches people, remembers choices and replaces only what it brought in', () => {

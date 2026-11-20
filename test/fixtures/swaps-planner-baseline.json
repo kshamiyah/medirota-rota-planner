@@ -68,6 +68,11 @@
           ],
           "shiftTypes": [
             {
+              "name": "Day job",
+              "start": "08:00",
+              "end": "17:30"
+            },
+            {
               "name": "Long Day",
               "start": "08:00",
               "end": "20:30"
@@ -76,11 +81,6 @@
               "name": "Night",
               "start": "20:00",
               "end": "08:30"
-            },
-            {
-              "name": "Normal working day",
-              "start": "08:00",
-              "end": "17:30"
             }
           ],
           "staff": [
@@ -186,6 +186,11 @@
           ],
           "shiftTypes": [
             {
+              "name": "Day job",
+              "start": "08:00",
+              "end": "17:30"
+            },
+            {
               "name": "Long Day",
               "start": "08:00",
               "end": "20:30"
@@ -194,11 +199,6 @@
               "name": "Night",
               "start": "20:00",
               "end": "08:30"
-            },
-            {
-              "name": "Normal working day",
-              "start": "08:00",
-              "end": "17:30"
             }
           ],
           "staff": [
@@ -254,7 +254,7 @@
           {
             "mediRotaId": "3",
             "date": "2026-11-02",
-            "shift": "Normal working day",
+            "shift": "Day job",
             "place": "MAU CT",
             "reason": "Booked in MediRota",
             "source": "medirota"
@@ -270,7 +270,7 @@
           {
             "mediRotaId": "2",
             "date": "2026-11-04",
-            "shift": "Normal working day",
+            "shift": "Day job",
             "place": "Elective C-Sections",
             "reason": "Booked in MediRota",
             "source": "medirota"
@@ -278,7 +278,7 @@
           {
             "mediRotaId": "1",
             "date": "2026-11-05",
-            "shift": "Normal working day",
+            "shift": "Day job",
             "place": "Elective C-Sections",
             "reason": "Booked in MediRota",
             "source": "medirota"
@@ -286,7 +286,7 @@
           {
             "mediRotaId": "2",
             "date": "2026-11-05",
-            "shift": "Normal working day",
+            "shift": "Day job",
             "place": "Elective C-Sections",
             "reason": "Booked in MediRota",
             "source": "medirota"
@@ -294,7 +294,7 @@
           {
             "mediRotaId": "2",
             "date": "2026-11-06",
-            "shift": "Normal working day",
+            "shift": "Day job",
             "place": "Elective C-Sections",
             "reason": "Booked in MediRota",
             "source": "medirota"
@@ -338,6 +338,11 @@
           ],
           "shiftTypes": [
             {
+              "name": "Day job",
+              "start": "08:00",
+              "end": "17:30"
+            },
+            {
               "name": "Long Day",
               "start": "08:00",
               "end": "20:30"
@@ -346,11 +351,6 @@
               "name": "Night",
               "start": "20:00",
               "end": "08:30"
-            },
-            {
-              "name": "Normal working day",
-              "start": "08:00",
-              "end": "17:30"
             }
           ],
           "staff": [

@@ -234,6 +234,10 @@ export function gradeSessionRates(analysis: SessionAnalysis, settings: SessionsS
   return rows;
 }
 
+export function visibleGradeSessionRows(rows: GradeSessionRow[], ownGroupId?: string): GradeSessionRow[] {
+  return rows.filter(row => row.count > 0 || row.id === ownGroupId);
+}
+
 export function visibleSessionTypes(types: SessionTypeSetting[], hideOnCalls: boolean): SessionTypeSetting[] {
   return types.filter(type => !hideOnCalls || type.kind !== 'on-call');
 }

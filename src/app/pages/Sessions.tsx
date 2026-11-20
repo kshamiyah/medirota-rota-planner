@@ -4,7 +4,7 @@ import { useWorkspace } from '../store';
 import { Empty, PageHead } from '../components/ui';
 import {
   analyseSessions, defaultSessionsSettings, formatSessions, offTarget, sessionDateRange, sessionEntries,
-  sessionGroupOptions, gradeSessionRates, equalGradeRatios, gradeSummary, type GradeSessionRow, type SessionPersonCounts, type SessionTypeSetting,
+  sessionGroupOptions, gradeSessionRates, visibleGradeSessionRows, equalGradeRatios, gradeSummary, type GradeSessionRow, type SessionPersonCounts, type SessionTypeSetting,
   visibleSessionTypes, gradeDateRangeLabel, niceAxisTicks, formatAxisTick, GRADE_CHART_IMAGE_MARGIN, gradeValueLabelX,
   gradeMarkerRect, gradeTypeFocusLabel, defaultCompactSessionType, GRADE_COMPACT_CHART_WIDTH,
 } from '../sessions';
@@ -289,7 +289,7 @@ function GradeComparisonChart({ rows, types, settings, focusedType, range, impor
   </div>;
 }
 
-export function Sessions({ go }: { go: (page: 'import') => void }) {
+export function Sessions({ go, openComparisonGroups }: { go: (page: 'import') => void; openComparisonGroups: () => void }) {
   const ws = useWorkspace();
   const snapshot = ws.swapFinder?.snapshot;
   const defaults = useMemo(() => defaultSessionsSettings(ws.profile), [ws.profile]);
@@ -309,16 +309,19 @@ export function Sessions({ go }: { go: (page: 'import') => void }) {
     [snapshot, ws.profile, settings, ws.sessionSubGroups, start, end]);
   const options = sessionGroupOptions(settings);
   const me = ws.role === 'coordinator' ? undefined : analysis?.people.find(person => person.staff.id === ws.me);
-  useEffect(() => { if (groupId === 'compare-grades') return; if (!options.some(option => option.id === groupId) && options.length) setGroupId(me?.comparisonId ?? me?.groupId ?? options[0].id); }, [groupId, options.length, me?.comparisonId, me?.groupId]);
-  const selectedOption = options.find(option => option.id === groupId) ?? options[0];
+  const ownGroupId = me?.comparisonId;
+  const countedOptions = analysis ? options.filter(option => option.id === ownGroupId || analysis.people.some(person => person.comparisonId === option.id && !person.staff.locum && settings.types.some(type => person.targets[type.id] !== undefined))) : options;
+  const hiddenOptions = options.filter(option => !countedOptions.some(item => item.id === option.id));
+  useEffect(() => { if (groupId === 'compare-grades' || !analysis) return; if (!countedOptions.some(option => option.id === groupId) && countedOptions.length) setGroupId(countedOptions.find(option => option.id === ownGroupId)?.id ?? countedOptions[0].id); }, [groupId, countedOptions.map(item => item.id).join('|'), ownGroupId, !!analysis]);
+  const selectedOption = countedOptions.find(option => option.id === groupId) ?? countedOptions.find(option => option.id === ownGroupId) ?? countedOptions[0];
   const shownTypes = visibleSessionTypes(settings.types, hideOnCalls);
   useEffect(() => { if (overTimeTypeId !== 'all' && !shownTypes.some(type => type.id === overTimeTypeId)) setOverTimeTypeId('all'); }, [overTimeTypeId, shownTypes.map(type => type.id).join('|')]);
   const selectedType = shownTypes.find(type => type.id === typeId) ?? shownTypes[0];
   useEffect(() => { if (selectedType && typeId !== selectedType.id) setTypeId(selectedType.id); }, [typeId, selectedType?.id]);
   if (!snapshot || !range) return <><PageHead title="Sessions">Compare session counts within grade groups.</PageHead><Empty><h2>Import a rota first</h2><p>Sessions will show counts after you import a MediRota rota.</p><button className="primary" onClick={() => go('import')}>Update from MediRota</button></Empty></>;
   const comparingGrades = groupId === 'compare-grades';
-  const selectedComparison = options.find(option => option.id === groupId) ?? options[0];
-  const gradeRows = analysis ? gradeSessionRates(analysis, settings) : [];
+  const selectedComparison = countedOptions.find(option => option.id === groupId) ?? countedOptions.find(option => option.id === ownGroupId) ?? countedOptions[0];
+  const gradeRows = analysis ? visibleGradeSessionRows(gradeSessionRates(analysis, settings), me?.comparisonId) : [];
   const gradeTypes = shownTypes;
   const compactDefaultType = defaultCompactSessionType(gradeTypes);
   useEffect(() => {
@@ -342,9 +345,10 @@ export function Sessions({ go }: { go: (page: 'import') => void }) {
     <section className="sessions-controls">
       <label className="field">From<input type="date" min={range.start} max={range.end} value={start} onChange={event => dateChange('start', event.target.value as ISODate)} /></label>
       <label className="field">To<input type="date" min={range.start} max={range.end} value={end} onChange={event => dateChange('end', event.target.value as ISODate)} /></label>
-      <label className="field">Comparison group<select value={groupId} onChange={event => setGroupId(event.target.value)}><option value="compare-grades">Compare grades</option>{options.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>
+      <label className="field">Comparison group<select value={groupId} onChange={event => setGroupId(event.target.value)}><option value="compare-grades">Compare grades</option>{countedOptions.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label><button type="button" className="link-button" onClick={openComparisonGroups}>Edit groups</button>
       <label className="sessions-toggle"><input type="checkbox" checked={hideOnCalls} onChange={event => setHideOnCalls(event.target.checked)} />Hide on-calls</label>
     </section>
+    {hiddenOptions.length > 0 && <p className="small muted sessions-hidden-groups">{hiddenOptions.map(option => <span key={option.id}>{option.name} has no doctors counted, so it’s hidden.</span>)}</p>}
     {comparingGrades ? <section className="grade-comparison-section">
       <div className="grade-comparison-controls"><div><p className="eyebrow">Across comparison groups</p><h2>Compare grades</h2><p className="small muted">Sessions per full-time doctor per 4 weeks, adjusted for % time and leave.</p></div><label className="field">Session type<select value={overTimeTypeId} onChange={event => setOverTimeTypeId(event.target.value)} aria-label="Session type">{!narrowGradeChart && <option value="all">All types</option>}{gradeTypes.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label></div>
       {analysis && <GradeComparisonChart rows={gradeRows} types={gradeTypes} settings={settings} focusedType={focusedGradeType} range={{ start, end }} importedAt={importedAt} onTypeClick={type => setOverTimeTypeId(type.id)} narrow={narrowGradeChart} />}

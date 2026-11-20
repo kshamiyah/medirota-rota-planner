@@ -1136,3 +1136,5 @@ tr.row-on td.sticky-col { color: var(--accent); font-weight: 600; }
   .grade-table-wrap { margin-inline: -4px; }
   .sessions-page { overflow-x: hidden; max-width: 100%; }
 }
+
+.sessions-hidden-groups span { display: block; }

@@ -39,6 +39,9 @@ export function App() {
   const [wizardEpoch, setWizardEpoch] = useState(0);
   const [page, setPage] = useState<Page>(() => fetchFromMediRota ? 'import' : wizardMode ? 'setup' : 'overview');
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('you');
+  const [settingsAnchor, setSettingsAnchor] = useState('');
+  const openSessionSettings = (anchor: string) => { setSettingsSection('sessions'); setSettingsAnchor(anchor); setPage('settings'); };
+  useEffect(() => { if (page !== 'settings') setSettingsAnchor(''); }, [page]);
   const fetchWizardOpened = useRef(false);
   useEffect(() => {
     if (!fetchFromMediRota || !fetchTabNeedsSetup || dismissedSetupWizard() || fetchWizardOpened.current || !hasImportedRota(ws)) return;
@@ -94,9 +97,9 @@ export function App() {
       <main className="main">
         {ws.role !== 'coordinator' && page !== 'swaps' && page !== 'swapSettings' && page !== 'setup' && page !== 'settings' && <ViewingAs />}
         {page === 'overview' && <Overview go={setPage} openPresets={() => { setSettingsSection('files'); setPage('settings'); }} />}
-        {page === 'sessions' && <Sessions go={setPage} />}
-        {page === 'fairer' && <FairerRota go={setPage} openSessions={() => { setSettingsSection('sessions'); setPage('settings'); }} />}
-        {page === 'settings' && <SettingsPage go={setPage} initialSection={settingsSection} onSectionChange={setSettingsSection} onRunSetup={runSetupAgain} returnToSetup={wizardMode !== null ? () => setPage('setup') : undefined} />}
+        {page === 'sessions' && <Sessions go={setPage} openComparisonGroups={() => openSessionSettings('comparison-groups')} />}
+        {page === 'fairer' && <FairerRota go={setPage} openSessions={anchor => openSessionSettings(anchor)} />}
+        {page === 'settings' && <SettingsPage go={setPage} initialSection={settingsSection} initialAnchor={settingsAnchor} onSectionChange={section => { setSettingsSection(section); setSettingsAnchor(''); }} onRunSetup={runSetupAgain} returnToSetup={wizardMode !== null ? () => setPage('setup') : undefined} />}
         {page === 'import' && <Import go={setPage} showFetchDone={!fetchTabNeedsSetup} />}
         {page === 'shifts' && <Shifts />}
         {page === 'places' && <Places />}
@@ -104,7 +107,7 @@ export function App() {
         {page === 'rules' && <Rules />}
         {page === 'people' && <People />}
         {wizardMode && <div hidden={page !== 'setup'}><SetupWizard key={`${wizardMode}-${wizardEpoch}`} mode={wizardMode} initialStep={wizardInitialStep} go={nextPage => { if (nextPage === 'settings') setSettingsSection('people'); setPage(nextPage); }} onFinish={finishSetup} /></div>}
-        {page === 'swaps' && <FindSwaps go={setPage} />}
+        {page === 'swaps' && <FindSwaps go={next => { if (next === 'rules') { setSettingsSection('rules'); setSettingsAnchor(''); setPage('settings'); } else setPage(next); }} />}
         {page === 'swapSettings' && <SwapSettingsPage go={setPage} />}
       </main>
     </div>

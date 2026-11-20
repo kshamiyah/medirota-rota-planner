@@ -53,10 +53,10 @@ export function normalisePlanner(ws: Workspace) {
     staff: ws.profile.staff.map(s => ({
       mediRotaId: s.mediRotaId,
       name: s.name,
-      grade: ws.profile.groups.find(g => s.groupIds.includes(g.id))?.name,
+      ...(ws.profile.groups.find(g => s.groupIds.includes(g.id))?.name ? { grade: ws.profile.groups.find(g => s.groupIds.includes(g.id))!.name } : {}),
       locum: s.locum ?? false,
-      startDate: s.startDate,
-      endDate: s.endDate,
+      ...(s.startDate ? { startDate: s.startDate } : {}),
+      ...(s.endDate ? { endDate: s.endDate } : {}),
     })).sort((a, b) => (a.mediRotaId ?? a.name).localeCompare(b.mediRotaId ?? b.name)),
     demandCount: ws.profile.demands.length,
     ruleCount: ws.profile.rules.length,

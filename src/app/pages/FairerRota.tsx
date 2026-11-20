@@ -72,7 +72,7 @@ export function fairerSettingsCollapsed(hasResult: boolean, editing: boolean): b
 export function fairerGridInitialState(): { open: false; changedOnly: true } { return { open: false, changedOnly: true }; }
 /** Estimate shown next to Change at most. Empty for No limit so "No limit" is not repeated. */
 export function fairerChangeLimitHint(limit: number | 'none', estimate: number): string {
-  return limit === 'none' ? '' : `(${Math.floor(estimate * limit / 100)} of ${estimate})`;
+  return limit === 'none' ? '' : `Move at most ${Math.floor(estimate * limit / 100)} of the ${estimate} day sessions (${limit}%)`;
 }
 /** Mondays used as Week picker values for a date range. */
 export function fairerWeekOptions(dates: ISODate[]): ISODate[] {
@@ -122,7 +122,14 @@ function runStats(dayJobs: Assignment[], assignments: Assignment[], model: Faire
   return { qualifying, threePlus, longest };
 }
 
-export function FairerRota({ go, openSessions }: { go: (page: Page) => void; openSessions: () => void }) {
+export type FairerConsultantListState = { kind: 'none' | 'configured-without-match' } | { kind: 'allocated'; date: ISODate } | { kind: 'configure'; date?: ISODate };
+export function fairerConsultantListState(hasLists: boolean, hasSameConsultantsSettings: boolean, importedDate?: ISODate, allocationDate?: ISODate): FairerConsultantListState {
+  if (!hasLists) return { kind: 'none' };
+  if (!hasSameConsultantsSettings) return { kind: 'configure', ...(importedDate ? { date: importedDate } : {}) };
+  return allocationDate ? { kind: 'allocated', date: allocationDate } : { kind: 'configured-without-match' };
+}
+
+export function FairerRota({ go, openSessions }: { go: (page: Page) => void; openSessions: (anchor: string) => void }) {
   const ws = useWorkspace();
   const snapshot = ws.swapFinder?.snapshot;
   const imported = snapshot ? sessionDateRange(snapshot) : undefined;
@@ -153,9 +160,12 @@ export function FairerRota({ go, openSessions }: { go: (page: Page) => void; ope
   const latest = snapshot ? latestImportedAt(snapshot) : undefined;
   const settings = ws.sessions ?? defaultSessionsSettings(ws.profile);
   const consistency = settings.sameConsultants ?? { groupIds: [], typeIds: [] };
+  const hasAnyConsultantLists = (ws.consultantLists ?? []).some(cell => cell.consultants.length > 0);
   const hasConsultantLists = (ws.consultantLists ?? []).some(cell => consistency.typeIds.includes(settings.types.find(type => type.placeIds.includes(cell.placeId))?.id ?? '') && cell.consultants.length > 0);
   const [keepSameConsultants, setKeepSameConsultants] = useState(ws.fairerSettings?.keepSameConsultants ?? (!!consistency.groupIds.length && hasConsultantLists));
   const allocationDate = (ws.consultantLists ?? []).filter(cell => consistency.typeIds.includes(settings.types.find(type => type.placeIds.includes(cell.placeId))?.id ?? '') && cell.consultants.length > 0).map(cell => cell.date).sort().at(-1);
+  const latestConsultantListDate = (ws.consultantLists ?? []).filter(cell => cell.consultants.length > 0).map(cell => cell.date).sort().at(-1);
+  const consultantListState = fairerConsultantListState(hasAnyConsultantLists, !!consistency.groupIds.length && !!consistency.typeIds.length, latestConsultantListDate, allocationDate);
   const consistencyLabel = `Keep ${settings.groups.filter(group => consistency.groupIds.includes(group.id)).map(group => group.name).join(' and ')} with the same consultants in ${settings.types.filter(type => consistency.typeIds.includes(type.id)).map(type => type.name).join(' and ')}`;
   const types = settings.types.filter(type => type.kind === 'day');
   const dateList = useMemo(() => imported && start <= end ? dateRange(start, end) : [], [start, end, imported?.start, imported?.end]);
@@ -267,8 +277,8 @@ export function FairerRota({ go, openSessions }: { go: (page: Page) => void; ope
     return settings.types.find(type => type.kind === 'day' && place && type.placeIds.includes(place));
   };
   const renderPerson = (person: (typeof ws.profile.staff)[number]) => {
-    if (changedOnly && suggestion && !dateList.some(date => isChanged(person.id, date))) return null;
-    return <tr key={person.id} className={person.id === viewPerson?.id ? 'fairer-me' : ''}><th className="fairer-person">{person.name}{person.regularLocum && <span className="pill">Locum</span>}</th>{dateList.map(date => {
+    if (changedOnly && suggestion && !gridDates.some(date => isChanged(person.id, date))) return null;
+    return <tr key={person.id} className={person.id === viewPerson?.id ? 'fairer-me' : ''}><th className="fairer-person">{person.name}{person.regularLocum && <span className="pill">Locum</span>}</th>{gridDates.map(date => {
       const changed = isChanged(person.id, date), assignment = cellAssignment(person.id, date), day = snapshot.days[person.id]?.[date];
       const consultants = consultantsForCell(person.id, date, assignment ?? baseAssignment(person.id, date));
       const text = (assignment ? placeName(assignment.roleId, model!, roleNames) : (day?.activity ?? (day?.status === 'leave' ? 'Leave' : day?.status === 'training' ? 'Training' : day?.status === 'zero' ? 'Zero' : ''))) + (consultants.length ? ` · ${consultantInitials(consultants)}` : '');
@@ -282,6 +292,7 @@ export function FairerRota({ go, openSessions }: { go: (page: Page) => void; ope
   const viewerComparison = viewPerson ? sessionComparisonFor(viewPerson, ws.profile, settings, ws.sessionSubGroups ?? {}).comparisonId : undefined;
   const favouredHeadline = favouredRatioHeadline(settings, rows, viewerComparison);
   const longRange = dateList.length > 13 * 7;
+  const gridDates = weekJump ? dateRange(weekJump, addDays(weekJump, 6)) : dateList;
   const progressWeeks = Math.max(1, Math.ceil(dateList.length / 7));
 
   return <section className="fairer-page page-content">
@@ -298,10 +309,10 @@ export function FairerRota({ go, openSessions }: { go: (page: Page) => void; ope
       </div></fieldset>
       <fieldset className="fairer-segment"><legend>Days in a row at one place</legend>{(['none', 2, 3, 4] as const).map(value => <button key={value} type="button" className={maxDays === value ? 'selected' : ''} aria-pressed={maxDays === value} onClick={() => { setMaxDays(value); saveSettings({ maxDays: value }); }}>{value === 'none' ? 'No limit' : value}</button>)}</fieldset>
     </div>
-      <div className="fairer-consultant-controls"><p className="small muted">{allocationDate ? `Consultants allocated up to ${dateLabel(allocationDate)}` : 'No consultant lists imported yet. Fetch By activity weeks with the bookmark.'}</p>{consistency.groupIds.length > 0 && hasConsultantLists && <SameConsultantsControl label={consistencyLabel} savedChoice={keepSameConsultants} changeLimit={limit} onChange={checked => { setKeepSameConsultants(checked); saveSettings({ keepSameConsultants: checked }); }} />}{allocationDate && end > allocationDate && <p className="small muted">Consultants are only known up to {dateLabel(allocationDate)}, so later weeks are not planned for consistency.</p>}</div>
-      <div className="fairer-targets"><div><b>Targets from Sessions</b><p>{types.map(type => `${type.name}: ${settings.groups.map(group => `${group.name} ${settings.ratios[type.id]?.[group.id] ?? 1}`).join(' · ')}`).join('  |  ') || 'No day session types are set up.'}</p></div><button onClick={openSessions}>Edit in Settings → Sessions</button></div>
+      <div className="fairer-consultant-controls"><p className="small muted">{consultantListState.kind === 'none' ? 'No consultant lists yet. They come from MediRota’s By activity pages.' : consultantListState.kind === 'configure' ? <>Consultant lists imported up to {consultantListState.date ? dateLabel(consultantListState.date) : 'an unknown date'}. To keep doctors with the same consultants, choose which session types in <button type="button" className="link-button" onClick={() => openSessions('same-consultants')}>Settings → Same consultants</button>.</> : consultantListState.kind === 'allocated' ? `Consultants allocated up to ${dateLabel(consultantListState.date)}` : 'No consultant lists match the selected session types.'}</p>{consistency.groupIds.length > 0 && hasConsultantLists && <SameConsultantsControl label={consistencyLabel} savedChoice={keepSameConsultants} changeLimit={limit} onChange={checked => { setKeepSameConsultants(checked); saveSettings({ keepSameConsultants: checked }); }} />}{allocationDate && end > allocationDate && <p className="small muted">Consultants are only known up to {dateLabel(allocationDate)}, so later weeks are not planned for consistency.</p>}</div>
+      <div className="fairer-targets"><div><b>Targets from Sessions</b><p>{types.map(type => `${type.name}: ${settings.groups.map(group => `${group.name} ${settings.ratios[type.id]?.[group.id] ?? 1}`).join(' · ')}`).join('  |  ') || 'No day session types are set up.'}</p></div><button onClick={() => openSessions('ratios')}>Edit in Settings → Sessions</button></div>
       <div className="row fairer-actions">{running ? <><button onClick={cancel}>Cancel</button><span className="muted">{progress?.label ?? 'Starting'} · {progress?.elapsed.toFixed(1) ?? '0.0'}s</span></> : <button className="primary" onClick={startSolve} disabled={!dateList.length}>Make fairer rota</button>}</div>
-      {longRange ? <p className="small muted">Long range: this may take up to 3 minutes.</p> : running && <p className="small muted">This can take up to a minute.</p>}
+      {longRange ? <p className="small muted">This can take up to 3 minutes.</p> : running && <p className="small muted">This can take up to 3 minutes.</p>}
       {running && <div className="progress" aria-label="Solver progress"><div style={{ width: `${fairerProgressPercent(progress?.elapsed ?? 0, progressWeeks)}%` }} /></div>}
       {error && <p className="quiet-warning" role="alert">{error}</p>}
       <details className="fairer-how"><summary>How this works</summary><p>Only single-place mapped day jobs can move. On-calls, nights, long days, part shifts, extras, locums, leave, training, zero days, blanks and unmapped activities stay as imported. A doctor’s shift time and working day do not change. Profile rules are not applied to moved sessions.</p><p>The suggestion is held in memory only. It does not change or save over the imported rota.</p></details>
@@ -317,9 +328,9 @@ export function FairerRota({ go, openSessions }: { go: (page: Page) => void; ope
       <div className="fairer-grid-head"><div><h2>Suggested rota</h2><p className="muted small">Changed cells have an outline and a dot. Hover or tap for the previous activity.</p></div><label><input type="checkbox" checked={changedOnly} onChange={e => setChangedOnly(e.target.checked)} /> Changed cells only</label></div>
       <label className="fairer-week-picker">Week <select value={weekJump} onChange={event => { const value = event.target.value as ISODate; setWeekJump(value); const wrap = gridWrapRef.current, header = document.getElementById(fairerWeekHeaderId(value)); if (wrap && header) { const nameColumnWidth = wrap.querySelector<HTMLElement>('.overview-person-col')?.getBoundingClientRect().width ?? 0; wrap.scrollTo({ left: fairerWeekScrollTarget(wrap.scrollLeft, wrap.getBoundingClientRect().left, header.getBoundingClientRect().left, nameColumnWidth), behavior: 'smooth' }); } }}>{fairerWeekOptions(dateList).map(week => <option key={week} value={week}>Week of {dateLabel(week)}</option>)}</select></label>
       <div className="overview-legend">{types.map(type => <span key={type.id}><i className={`session-swatch c${type.colour}`} />{type.name}</span>)}</div>
-      <div className="overview-grid-wrap" ref={gridWrapRef}><table className="overview-grid fairer-grid"><thead><tr><th className="overview-person-col">Doctor</th>{dateList.map(date => { const weekMonday = addDays(date, -weekday(date)); const isWeekAnchor = fairerWeekAnchorDate(weekMonday, dateList) === date; return <th key={date} id={isWeekAnchor ? fairerWeekHeaderId(weekMonday) : undefined}><span>{new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' })}</span>{isWeekAnchor && <small>{new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { month: 'short' })}</small>}</th>; })}</tr></thead><tbody>
-        {viewPerson && (!changedOnly || dateList.some(date => isChanged(viewPerson.id, date))) && <tr className="fairer-me"><th className="fairer-person">{viewPerson.name}</th>{dateList.map(date => { const changed = isChanged(viewPerson.id, date), item = cellAssignment(viewPerson.id, date), day = snapshot.days[viewPerson.id]?.[date], consultants = consultantsForCell(viewPerson.id, date, item ?? baseAssignment(viewPerson.id, date)), label = (item ? placeName(item.roleId, model, roleNames) : day?.activity ?? (day?.status === 'leave' ? 'Leave' : day?.status === 'training' ? 'Training' : '')) + (consultants.length ? ` · ${consultantInitials(consultants)}` : ''), type = cellType(viewPerson.id, date), typeStyle = type && !day?.extra ? { backgroundColor: `var(--c${type.colour})`, color: `var(--c${type.colour}t)` } : undefined; return <td key={date}><span style={typeStyle} className={`fairer-cell ${changed ? 'is-changed' : ''} ${day?.extra ? 'is-extra' : ''} ${changedOnly && !changed ? 'is-filtered' : ''}`} title={`${consultants.join(' & ')}${changed ? ` · Was ${placeName(baseAssignment(viewPerson.id, date)?.roleId, model, roleNames)}` : day?.activity ?? day?.status ?? 'No entry'}`}>{changedOnly && !changed ? '' : label || '·'}{changed && <i>•</i>}</span></td>; })}</tr>}
-        {displayGroups.map(group => <Fragment key={group.id}>{group.people.some(person => !changedOnly || dateList.some(date => isChanged(person.id, date))) && <tr className="overview-group"><th colSpan={dateList.length + 1}>{group.name}</th></tr>}{group.people.map(renderPerson)}</Fragment>)}
+      <div className="overview-grid-wrap" ref={gridWrapRef}><table className="overview-grid fairer-grid"><thead><tr><th className="overview-person-col">Doctor</th>{gridDates.map(date => { const weekMonday = addDays(date, -weekday(date)); const isWeekAnchor = fairerWeekAnchorDate(weekMonday, gridDates) === date; return <th key={date} id={isWeekAnchor ? fairerWeekHeaderId(weekMonday) : undefined}><span>{new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' })}</span>{isWeekAnchor && <small>{new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { month: 'short' })}</small>}</th>; })}</tr></thead><tbody>
+        {viewPerson && (!changedOnly || gridDates.some(date => isChanged(viewPerson.id, date))) && <tr className="fairer-me"><th className="fairer-person">{viewPerson.name}</th>{gridDates.map(date => { const changed = isChanged(viewPerson.id, date), item = cellAssignment(viewPerson.id, date), day = snapshot.days[viewPerson.id]?.[date], consultants = consultantsForCell(viewPerson.id, date, item ?? baseAssignment(viewPerson.id, date)), label = (item ? placeName(item.roleId, model, roleNames) : day?.activity ?? (day?.status === 'leave' ? 'Leave' : day?.status === 'training' ? 'Training' : '')) + (consultants.length ? ` · ${consultantInitials(consultants)}` : ''), type = cellType(viewPerson.id, date), typeStyle = type && !day?.extra ? { backgroundColor: `var(--c${type.colour})`, color: `var(--c${type.colour}t)` } : undefined; return <td key={date}><span style={typeStyle} className={`fairer-cell ${changed ? 'is-changed' : ''} ${day?.extra ? 'is-extra' : ''} ${changedOnly && !changed ? 'is-filtered' : ''}`} title={`${consultants.join(' & ')}${changed ? ` · Was ${placeName(baseAssignment(viewPerson.id, date)?.roleId, model, roleNames)}` : day?.activity ?? day?.status ?? 'No entry'}`}>{changedOnly && !changed ? '' : label || '·'}{changed && <i>•</i>}</span></td>; })}</tr>}
+        {displayGroups.map(group => <Fragment key={group.id}>{(groupedDoctors.find(item => item.id === group.id)?.people ?? []).some(person => !changedOnly || gridDates.some(date => isChanged(person.id, date))) && <tr className="overview-group"><th colSpan={gridDates.length + 1}>{group.name || group.id}</th></tr>}{group.people.map(renderPerson)}</Fragment>)}
       </tbody></table></div>
       </>}
       {gridOpen && <p className="overview-asof">Suggestion only · Imported rota remains unchanged.</p>}
