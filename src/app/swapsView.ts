@@ -333,3 +333,21 @@ export function swapPlanNotes(plan: SwapPlan, nameFor: (staffId: string) => stri
       : `Misses training on ${dateFor(item.date)}`),
   ];
 }
+
+/** Plain-words version of an engine ruled-out reason, shared by Find swaps and the chat add-on. */
+export function displayRuledOutReason(reason: string): string {
+  if (reason === "A valid swap exists but wasn't shown because of the plan limit.") return "There's a swap with this person, but it didn't make the first page. Use Find 50 more to see it.";
+  const statusWords: Record<string, string> = { night: "They're on a night.", dayJob: "They're on a day job.", longDay: "They're on a long day.", partShift: "They're on a part shift.", 'not imported': "Their week isn't imported.", training: "They're on training.", leave: "They're on leave.", available: "They're marked as available.", notAvailable: "They're marked as not available.", blank: "Their week isn't imported." };
+  let text = reason
+    .replace('The doctor is not off (night).', "They're on a night.")
+    .replace('The doctor is not off (dayJob).', "They're on a day job.")
+    .replace('The doctor is not off (longDay).', "They're on a long day.")
+    .replace('The doctor is not off (partShift).', "They're on a part shift.")
+    .replace('The doctor is not off (not imported).', "Their week isn't imported.")
+    .replace('Not on the rota on these dates', "Their week isn't imported")
+    .replace('Marked available rather than off', 'Marked as available')
+    .replace('Working ', 'On ')
+    .replace(/\bdayJob\b/g, 'day job');
+  text = text.replace(/The doctor is not off \(([^)]+)\)\./, (_match, status: string) => statusWords[status] ?? "They're working.");
+  return text.replace(/\b\d{4}-\d{2}-\d{2}\b/g, value => new Date(`${value}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }));
+}

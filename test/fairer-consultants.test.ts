@@ -130,7 +130,7 @@ describe('Fairer rota consultant lists', () => {
     const withAllowance = renderToStaticMarkup(createElement(FairerConsultantOutcome, {
       notes: [allowance], enabled: true, hasConsistency: true, report, workspace: ws, viewId: 'fairer-doctor-0',
     }));
-    expect(withAllowance).toContain(allowance);
+    expect(withAllowance).toContain(allowance.replace('Ratios', 'Shares'));
     expect(withAllowance).toContain('ST theatre consultants');
     expect(withAllowance).toContain('Dr Rowan');
     expect(withAllowance).toContain('Mr Vale 2');
@@ -148,7 +148,7 @@ describe('Fairer rota consultant lists', () => {
         notes: [note], fallbackCheck: reason, enabled: true, hasConsistency: true, report, workspace: ws,
       }));
       const plain = markup.replace(/&#x27;/g, "'");
-      expect(plain).toContain(note);
+      expect(plain).toContain(note.replace(/\bratios\b/g, 'shares'));
       expect(plain).not.toContain('ST theatre consultants');
     }
   });
@@ -471,7 +471,7 @@ describe('Fairer rota consultant lists', () => {
     expect(fairerWeekScrollTarget(0, 100, 180, 160)).toBe(0);
   });
 
-  it('renders one ratios table, marks the viewing group, warns quietly when away from aim, and omits inactive types', () => {
+  it('renders one share table, marks the viewing group, shows progress towards the aim, and omits inactive types', () => {
     const rows = [
       { groupId: 'fy', groupName: 'FY2', typeId: 'theatre', typeName: 'Theatre', before: 20, after: 12, aim: 15, capacity: 100 },
       { groupId: 'st', groupName: 'ST1-2', typeId: 'theatre', typeName: 'Theatre', before: 10, after: 18, aim: 15, capacity: 100 },
@@ -482,11 +482,14 @@ describe('Fairer rota consultant lists', () => {
       groups: [{ id: 'fy', name: 'FY2', groupId: 'fy' }, { id: 'st', name: 'ST1-2', groupId: 'st' }], viewerGroupId: 'st',
     }));
     expect(markup.match(/Session type/g)).toHaveLength(1);
-    expect(markup).toContain('Share of each place: MediRota → suggestion (aim)');
+    expect(markup).toContain('Share of each place');
+    expect(markup).toContain('MediRota → suggestion. ✓ closer to the aim, ✗ further from it.');
     expect(markup).toContain('You');
-    expect(markup).toContain('class="is-off-target"');
+    expect(markup).not.toContain('is-off-target');
+    expect(markup).toContain('aria-label="closer to the aim"');
     expect(markup).not.toContain('>Wards<');
-    expect(markup).toContain('20% → 12% (15%)');
+    expect(markup).toContain('20% → 12%');
+    expect(markup).toContain('Aim: FY2 15% · ST1-2 15%');
   });
 
   it('finds the known best repeat allocation for three STs and two FY2s across two weeks', async () => {

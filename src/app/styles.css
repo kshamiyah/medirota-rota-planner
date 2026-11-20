@@ -849,14 +849,14 @@ tr.row-on td.sticky-col { color: var(--accent); font-weight: 600; }
 .fairer-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 14px 20px; padding-bottom: 15px; border-bottom: 1px solid var(--line); }
 .fairer-controls > label { display: grid; gap: 5px; color: var(--muted); font-size: 13px; }
 .fairer-controls input[type="date"] { min-width: 150px; }
-.fairer-limit { min-width: 330px; margin: 0; padding: 0; border: 0; }
+.fairer-limit { min-width: 0; margin: 0; padding: 0; border: 0; }
 .fairer-limit legend { margin-bottom: 5px; color: var(--muted); font-size: 13px; }
 .fairer-limit-options { display: flex; align-items: center; gap: 9px; min-height: 36px; color: var(--text); }
 .fairer-limit-options label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; color: var(--muted); font-size: 13px; }
 .fairer-limit .range-control { display: flex; align-items: center; gap: 8px; color: var(--text); }
 .fairer-limit input[type="range"] { width: 140px; }
 .fairer-limit input[type="number"] { width: 64px; }
-.fairer-limit-options small { font-size: 12px; white-space: nowrap; }
+.fairer-limit-options small { font-size: 12px; }
 .fairer-segment { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0; padding: 0; border: 0; }
 .fairer-segment legend { width: 100%; margin-bottom: 5px; color: var(--muted); font-size: 13px; }
 .fairer-segment button { padding: 7px 10px; }
@@ -906,13 +906,11 @@ tr.row-on td.sticky-col { color: var(--accent); font-weight: 600; }
 .fairer-ratios-card { min-width: 0; }
 .fairer-ratios-card table { table-layout: auto; }
 .fairer-ratios-card th:first-child { min-width: 150px; }
-.fairer-ratios-card td.is-off-target, .fairer-ratio-type p.is-off-target { background: var(--warn-soft); }
 .fairer-you-tag { display: inline-block; margin-left: 6px; padding: 2px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; }
 .fairer-ratios-mobile { display: none; }
 .fairer-ratio-type { padding: 9px 0; border-top: 1px solid var(--line); }
 .fairer-ratio-type h3 { margin: 0 0 5px; font-size: 14px; }
 .fairer-ratio-type p { display: flex; justify-content: space-between; gap: 10px; margin: 0; padding: 7px 8px; border-bottom: 1px solid var(--line); font-size: 12px; }
-.fairer-ratio-type p.is-viewer { background: var(--panel-2); }
 .fairer-grid-open { justify-self: start; }
 .fairer-week-picker { display: flex; align-items: center; gap: 8px; width: fit-content; color: var(--muted); font-size: 13px; }
 .fairer-week-picker select { max-width: 100%; }
@@ -921,38 +919,70 @@ tr.row-on td.sticky-col { color: var(--accent); font-weight: 600; }
 .fairer-grid-head h2 { margin: 0 0 4px; }
 .fairer-grid-head p { margin: 0; }
 .fairer-grid-head label { display: flex; align-items: center; gap: 7px; }
-.fairer-grid { min-width: max-content; }
+.fairer-grid { min-width: 780px; width: 100%; table-layout: fixed; }
+.fairer-name-column { width: 164px; }
+.fairer-day-column { width: 88px; }
+.fairer-grid-wrap { max-width: 100%; min-width: 0; }
 .fairer-grid .fairer-person { position: sticky; left: 0; z-index: 1; min-width: 150px; padding: 6px 9px; background: var(--panel); text-align: left; white-space: nowrap; }
 .fairer-grid .fairer-me .fairer-person { background: var(--panel-2); }
-.fairer-cell { position: relative; display: flex; align-items: center; justify-content: center; gap: 3px; min-height: 30px; padding: 3px 5px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.fairer-cell { position: relative; display: flex; align-items: center; justify-content: center; gap: 3px; width: 100%; min-width: 0; min-height: 30px; margin: 0; padding: 3px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 500; white-space: normal; overflow-wrap: anywhere; text-align: center; }
 .fairer-cell.is-changed { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 5px; color: var(--text); font-weight: 700; }
 .fairer-cell.is-changed i { color: var(--accent); font-style: normal; font-size: 17px; line-height: 10px; }
 .fairer-cell.is-extra { opacity: .65; outline: 1px dashed var(--muted); outline-offset: -2px; }
 .fairer-cell.is-filtered { visibility: hidden; }
 .fairer-me { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .fairer-grid .overview-group th { text-align: left; }
-@page { size: A4 landscape; margin: 10mm; }
+.fairer-control-help { flex-basis: 100%; max-width: 330px; margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.fairer-aim { display: block; max-width: 290px; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.6; font-weight: 400; white-space: normal; }
+.fairer-ratio-type .fairer-aim { max-width: none; margin-bottom: 5px; }
+.fairer-share-key, .fairer-mark-key, .fairer-hidden-count { margin: 4px 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.fairer-share-mark { font-weight: 700; }
+.fairer-week-controls, .fairer-export-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.fairer-export-actions p { flex-basis: 100%; margin: 0; }
+.fairer-targets > div { min-width: 0; overflow-wrap: anywhere; }
+.fairer-week-picker { min-width: 0; max-width: 100%; }
+.fairer-week-picker select { min-width: 0; }
+.fairer-mark-key { display: grid; gap: 4px; }
+.fairer-code-key { margin: 2px 0; }
+.fairer-code-key span { display: inline; line-height: 1.7; }
+.fairer-code-key b { display: inline-block; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--text); }
+.fairer-cell-detail { padding: 10px; margin: 0; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; line-height: 1.6; }
+.fairer-print-root { display: none; }
+/* Print rules apply only when Fairer rota is printing (body.fairer-printing / :has(.fairer-page)). */
+@page fairer-week { size: A4 landscape; margin: 10mm; }
 @media print {
-  .fairer-page { display: block; width: 100%; max-width: none; color: #111; }
-  .fairer-settings, .fairer-card { box-shadow: none; break-inside: avoid; border: 1px solid #bbb; }
-  .fairer-settings:not(.is-collapsed) { display: none; }
-  .fairer-grid-open, .fairer-grid-head, .fairer-week-picker, .overview-legend { display: none !important; }
-  .fairer-result { display: block; overflow: visible; }
-  .fairer-result > * { margin-bottom: 8px; }
-  .fairer-ratios-card { break-inside: avoid; }
-  .fairer-ratios-desktop { display: block !important; }
-  .fairer-ratios-mobile { display: none !important; }
-  .overview-grid-wrap { overflow: visible !important; width: 100%; max-width: 100%; box-shadow: none; }
-  .fairer-grid { min-width: 0; width: 100%; table-layout: fixed; font-size: 7px; }
-  .fairer-grid th, .fairer-grid td { padding: 1px; }
-  .fairer-grid .fairer-person { position: static; min-width: 85px; white-space: normal; }
-  .fairer-cell { min-height: 18px; padding: 1px; font-size: 7px; white-space: normal; overflow-wrap: anywhere; }
-  .overview-asof { margin-top: 4px; }
-  .fairer-consultant-desktop { display: block !important; }
-  .fairer-consultant-mobile { display: none !important; }
-  .sidebar, .page-head button, .fairer-actions, button { display: none !important; }
-  .main { padding: 0; max-width: none; overflow: visible; }
-  body, .app { width: 100%; overflow: visible; background: #fff; }
+  body:has(.fairer-page):not(.fairer-printing) .fairer-grid-open,
+  body:has(.fairer-page):not(.fairer-printing) .fairer-grid-head,
+  body:has(.fairer-page):not(.fairer-printing) .fairer-week-picker,
+  body:has(.fairer-page):not(.fairer-printing) .fairer-export-actions,
+  body:has(.fairer-page):not(.fairer-printing) .fairer-actions { display: none !important; }
+  .fairer-printing > :not(.fairer-print-root) { display: none !important; }
+  body.fairer-printing, body.fairer-printing .app { width: 100%; overflow: visible; background: #fff; }
+  body.fairer-printing .fairer-print-root { display: block; page: fairer-week; color: #111; background: #fff; font-size: 8px; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  body.fairer-printing .fairer-print-root button { display: none !important; }
+  body.fairer-printing .fairer-print-week { break-before: page; break-inside: avoid; display: flow-root; }
+  body.fairer-printing .fairer-print-week:first-child { break-before: auto; }
+  body.fairer-printing .fairer-print-week h1 { font-size: 14px; margin: 0 0 4px; }
+  body.fairer-printing .fairer-print-week h2 { font-size: 11px; margin: 6px 0; }
+  body.fairer-printing .fairer-print-summary p { margin: 3px 0; }
+  body.fairer-printing .fairer-print-root .fairer-ratios-mobile { display: none !important; }
+  body.fairer-printing .fairer-print-root .fairer-card { padding: 4px 6px; margin: 5px 0; border: 1px solid #bbb; border-radius: 0; box-shadow: none; }
+  body.fairer-printing .fairer-print-root .fairer-ratios-desktop { display: block !important; }
+  body.fairer-printing .fairer-print-root .fairer-table-scroll, body.fairer-printing .fairer-print-root .fairer-grid-wrap { overflow: visible; width: 100%; max-width: none; box-shadow: none; }
+  body.fairer-printing .fairer-print-root .fairer-summary-table { font-size: 8px; }
+  body.fairer-printing .fairer-print-root .fairer-summary-table th, body.fairer-printing .fairer-print-root .fairer-summary-table td { padding: 3px; }
+  body.fairer-printing .fairer-print-root .fairer-aim { max-width: none; margin: 0; font-size: 7px; line-height: 1.3; }
+  body.fairer-printing .fairer-print-root .fairer-grid { min-width: 0; width: 100%; table-layout: fixed; font-size: 8px; }
+  body.fairer-printing .fairer-print-root .fairer-name-column { width: 15%; }
+  body.fairer-printing .fairer-print-root .fairer-day-column { width: auto; }
+  body.fairer-printing .fairer-print-root .fairer-grid th, body.fairer-printing .fairer-print-root .fairer-grid td { position: static; padding: 1px; height: auto; font-size: 8px; }
+  body.fairer-printing .fairer-print-root .fairer-grid .fairer-person, body.fairer-printing .fairer-print-root .fairer-grid .overview-person-col { position: static; width: auto; min-width: 0; white-space: normal; padding: 1px 4px; }
+  body.fairer-printing .fairer-print-root .fairer-grid .overview-group th { height: auto; padding: 2px 4px; }
+  body.fairer-printing .fairer-print-root .fairer-cell { min-height: 14px; padding: 1px; font-size: 8px; }
+  body.fairer-printing .fairer-print-root .fairer-code-key { display: flex !important; gap: 2px 8px; margin: 5px 0 0; font-size: 7px; }
+  body.fairer-printing .fairer-print-root .fairer-code-key b { padding: 0 2px; }
+  body.fairer-printing .fairer-print-root .fairer-mark-key, body.fairer-printing .fairer-print-root .fairer-share-key { margin: 3px 0; font-size: 7px; line-height: 1.3; }
+  body.fairer-printing .fairer-print-root .fairer-you-tag { padding: 0 3px; font-size: 7px; }
 }
 @media (max-width: 700px) {
   .fairer-settings, .fairer-card { padding: 13px; }

@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { addDays, dateRange, weekday } from '../../engine/calendar';
 import type { Assignment, ISODate } from '../../engine/types';
 import { defaultSessionsSettings, sessionComparisonFor, sessionDateRange, sessionGroupOptions, type SessionsSettings } from '../sessions';
@@ -7,6 +8,9 @@ import { update, useWorkspace } from '../store';
 import type { Page } from './types';
 import type { WorkerMessage, WorkerRequest } from '../solver.worker';
 import { Empty } from '../components/ui';
+import { FairerGrid } from '../components/FairerGrid';
+import { fitFairerPrint } from '../fairerPrint';
+import { downloadFairerCsv, fairerChangedWeeks, fairerDisplayNote, fairerNextChangeWeek, fairerShareMark, fairerSharesLine, fairerWeekDates, makeFairerDisplay, unchangedFromBaseline } from '../fairerDisplay';
 
 const todayMonday = (): ISODate => {
   const now = new Date();
@@ -15,14 +19,8 @@ const todayMonday = (): ISODate => {
   return date.toISOString().slice(0, 10);
 };
 const dateLabel = (date: ISODate) => new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-const unchangedFromBaseline = (a: Assignment, b: Assignment, model: FairerModel) => {
-  if (a.staffId !== b.staffId || a.date !== b.date || a.shiftTypeId !== b.shiftTypeId) return false;
-  const baselineRole = model.baselineRoleByStaffDate[`${a.staffId}|${a.date}`];
-  return baselineRole ? b.roleId === baselineRole : model.placeForRole[a.roleId ?? ''] === model.placeForRole[b.roleId ?? ''];
-};
-const placeName = (roleId: string | undefined, model: FairerModel, roles: Map<string, string>) => roleId ? roles.get(model.placeForRole[roleId] ?? roleId) ?? 'Day place' : '';
 
-interface SummaryRow { groupId: string; groupName: string; typeId: string; typeName: string; before: number; after: number; aim: number; capacity: number }
+export interface SummaryRow { groupId: string; groupName: string; typeId: string; typeName: string; before: number; after: number; aim: number; capacity: number }
 
 export function getSummary(model: FairerModel, after: Assignment[], ws: ReturnType<typeof useWorkspace>): SummaryRow[] {
   const settings = ws.sessions ?? defaultSessionsSettings(ws.profile);
@@ -154,7 +152,6 @@ export function FairerRota({ go, openSessions }: { go: (page: Page) => void; ope
   const [settingsEditOpen, setSettingsEditOpen] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
   const [weekJump, setWeekJump] = useState<ISODate>('');
-  const gridWrapRef = useRef<HTMLDivElement | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const solveStartedRef = useRef(0);
   const latest = snapshot ? latestImportedAt(snapshot) : undefined;
@@ -197,7 +194,7 @@ export function FairerRota({ go, openSessions }: { go: (page: Page) => void; ope
     workerRef.current = worker; setRunning(true); setProgress({ label: 'Starting', elapsed: (Date.now() - runStarted) / 1000 });
     worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
       const message = event.data;
-      if (message.type === 'progress') { setProgress({ label: message.done ? 'Finishing' : message.tier === 'fairness' ? 'Balancing session ratios' : message.tier === 'paired' ? 'Keeping paired consultants' : message.tier === 'consultants' ? 'Keeping the same consultants' : message.tier === 'preference' ? 'Improving variety' : 'Reducing changes', elapsed: (Date.now() - solveStartedRef.current) / 1000 }); return; }
+      if (message.type === 'progress') { setProgress({ label: message.done ? 'Finishing' : message.tier === 'fairness' ? 'Balancing session shares' : message.tier === 'paired' ? 'Keeping paired consultants' : message.tier === 'consultants' ? 'Keeping the same consultants' : message.tier === 'preference' ? 'Improving variety' : 'Reducing changes', elapsed: (Date.now() - solveStartedRef.current) / 1000 }); return; }
       worker.terminate(); workerRef.current = null; setRunning(false);
       if (message.type === 'done') {
         const assignments = combineFairerAssignments(nextModel, message.result.assignments);
@@ -224,75 +221,41 @@ export function FairerRota({ go, openSessions }: { go: (page: Page) => void; ope
     const timer = window.setInterval(() => setProgress(current => current ? { ...current, elapsed: (Date.now() - solveStartedRef.current) / 1000 } : current), 300);
     return () => window.clearInterval(timer);
   }, [running]);
+  const display = useMemo(() => model && suggestion ? makeFairerDisplay(ws, settings, model, suggestion) : undefined, [ws, settings, model, suggestion]);
   useEffect(() => {
-    if (!gridOpen || !dateList.length) return;
-    const wrap = gridWrapRef.current;
-    if (!wrap) return;
-    const updateWeek = () => {
-      const stickyWidth = wrap.querySelector<HTMLElement>('.overview-person-col')?.getBoundingClientRect().width ?? 0;
-      const left = wrap.getBoundingClientRect().left + stickyWidth;
-      const visible = fairerWeekOptions(dateList).find(week => {
-        const header = document.getElementById(fairerWeekHeaderId(week));
-        return header && header.getBoundingClientRect().right > left + 2;
-      });
-      if (visible) setWeekJump(visible);
+    if (!suggestion) return;
+    const before = () => {
+      document.body.classList.add('fairer-printing');
+      const root = document.querySelector<HTMLElement>('.fairer-print-root');
+      if (root) fitFairerPrint(root);
     };
-    updateWeek();
-    wrap.addEventListener('scroll', updateWeek, { passive: true });
-    return () => wrap.removeEventListener('scroll', updateWeek);
-  }, [gridOpen, dateList]);
+    const after = () => {
+      document.body.classList.remove('fairer-printing');
+      document.querySelectorAll<HTMLElement>('.fairer-print-week').forEach(sheet => sheet.style.removeProperty('zoom'));
+    };
+    window.addEventListener('beforeprint', before);
+    window.addEventListener('afterprint', after);
+    return () => { after(); window.removeEventListener('beforeprint', before); window.removeEventListener('afterprint', after); };
+  }, [suggestion]);
 
   if (!loaded || !snapshot) return <section className="page-content"><Empty><h1>Fairer rota</h1><p>Import a rota first. This page makes a suggestion in memory and never changes the imported rota.</p><button onClick={() => go('import')}>Update from MediRota</button></Empty></section>;
   const rows = summary;
   const beforeRuns = model ? runStats(model.dayJobs, model.dayJobs, model) : undefined;
   const afterRuns = model && suggestion ? runStats(model.dayJobs, suggestion, model) : undefined;
   const runShare = (stats?: { qualifying: number; threePlus: number }) => stats?.qualifying ? `${Math.round(stats.threePlus / stats.qualifying * 100)}%` : '0%';
-  const roleNames = new Map(ws.profile.roles.map(role => [role.id, role.name]));
-  // The viewing doctor is first in the consultant report and marked in the ratios table.
   const viewPerson = ws.role === 'coordinator' ? undefined : ws.me ? ws.profile.staff.find(person => person.id === ws.me) : undefined;
   const orderedGroups = settings.groups.flatMap(group => group.subGroups?.length ? group.subGroups.map(sub => ({ id: sub.id, name: `${group.name} · ${sub.name}`, groupId: group.id })) : [{ id: group.id, name: group.name, groupId: group.id }]);
-  const doctorsInGroup = (groupId: string) => ws.profile.staff.filter(person => (!person.locum || person.regularLocum) && sessionComparisonFor(person, ws.profile, settings, ws.sessionSubGroups ?? {}).comparisonId === groupId);
-  const groupedDoctors = orderedGroups.map(group => ({ ...group, people: doctorsInGroup(group.id).sort((a, b) => a.name.localeCompare(b.name)) })).filter(group => group.people.length);
-  const displayGroups = groupedDoctors.map(group => ({ ...group, people: group.people.filter(person => person.id !== viewPerson?.id) }));
-  const cellAssignment = (staffId: string, date: ISODate) => suggestion?.find(item => !item.fixed && item.staffId === staffId && item.date === date && item.roleId && model?.typeForRole[item.roleId]);
-  const baseAssignment = (staffId: string, date: ISODate) => model?.movable.find(item => item.staffId === staffId && item.date === date);
-  const isChanged = (staffId: string, date: ISODate) => { const before = baseAssignment(staffId, date), after = cellAssignment(staffId, date); return !!before && !!after && !unchangedFromBaseline(before, after, model!); };
-  const consultantsForCell = (staffId: string, date: ISODate, assignment?: Assignment) => {
-    if (!model || !assignment) return [] as string[];
-    const place = model.placeForRole[assignment.roleId ?? ''];
-    if (!model.consultantPlan.typeIds.includes(settings.types.find(type => type.placeIds.includes(place))?.id ?? '')) return [];
-    const planned = model.consultantsByRole[assignment.roleId ?? ''];
-    if (planned?.length) return planned;
-    const listed = ws.profile.roles.find(role => role.id === assignment.roleId)?.leadIds?.flatMap(id => ws.profile.leads?.find(lead => lead.id === id)?.name ?? []) ?? [];
-    if (listed.length) return listed;
-    const base = baseAssignment(staffId, date);
-    return base && model.placeForRole[base.roleId ?? ''] === place ? model.consultantPlan.baselineByStaffDate[`${staffId}|${date}`] ?? [] : [];
-  };
-  const consultantInitials = (names: string[]) => names.map(name => name.split(/\s+/).filter(part => !/^(mr|mrs|ms|dr)$/i.test(part)).map(part => part[0]?.toLocaleUpperCase('en-GB') ?? '').join('')).filter(Boolean).join('/');
-  const cellType = (staffId: string, date: ISODate) => {
-    const assignment = cellAssignment(staffId, date) ?? baseAssignment(staffId, date);
-    const activity = snapshot.days[staffId]?.[date]?.activity;
-    const roleId = assignment?.roleId ?? ws.profile.roles.find(role => role.name === activity)?.id;
-    const place = roleId ? model?.placeForRole[roleId] ?? roleId : undefined;
-    return settings.types.find(type => type.kind === 'day' && place && type.placeIds.includes(place));
-  };
-  const renderPerson = (person: (typeof ws.profile.staff)[number]) => {
-    if (changedOnly && suggestion && !gridDates.some(date => isChanged(person.id, date))) return null;
-    return <tr key={person.id} className={person.id === viewPerson?.id ? 'fairer-me' : ''}><th className="fairer-person">{person.name}{person.regularLocum && <span className="pill">Locum</span>}</th>{gridDates.map(date => {
-      const changed = isChanged(person.id, date), assignment = cellAssignment(person.id, date), day = snapshot.days[person.id]?.[date];
-      const consultants = consultantsForCell(person.id, date, assignment ?? baseAssignment(person.id, date));
-      const text = (assignment ? placeName(assignment.roleId, model!, roleNames) : (day?.activity ?? (day?.status === 'leave' ? 'Leave' : day?.status === 'training' ? 'Training' : day?.status === 'zero' ? 'Zero' : ''))) + (consultants.length ? ` · ${consultantInitials(consultants)}` : '');
-      const old = changed ? placeName(baseAssignment(person.id, date)?.roleId, model!, roleNames) : '';
-      const type = cellType(person.id, date);
-      const typeStyle = type && !day?.extra ? { backgroundColor: `var(--c${type.colour})`, color: `var(--c${type.colour}t)` } : undefined;
-      return <td key={date}><span style={typeStyle} className={`fairer-cell ${changed ? 'is-changed' : ''} ${day?.extra ? 'is-extra' : ''} ${changedOnly && !changed ? 'is-filtered' : ''}`} title={`${consultants.join(' & ')}${changed ? ` · Was ${old}` : day?.activity ?? day?.status ?? 'No entry'}`}>{changedOnly && !changed ? '' : text || '·'}{changed && <i aria-hidden="true">•</i>}</span></td>;
-    })}</tr>;
-  };
   const changesPercent = model?.movable.length ? Math.round(movedCount / model.movable.length * 100) : 0;
   const viewerComparison = viewPerson ? sessionComparisonFor(viewPerson, ws.profile, settings, ws.sessionSubGroups ?? {}).comparisonId : undefined;
   const favouredHeadline = favouredRatioHeadline(settings, rows, viewerComparison);
   const longRange = dateList.length > 13 * 7;
-  const gridDates = weekJump ? dateRange(weekJump, addDays(weekJump, 6)) : dateList;
+  const resultDates = display?.dates ?? dateList;
+  const weeks = fairerWeekOptions(resultDates);
+  const currentWeek = weeks.includes(weekJump) ? weekJump : weeks[0] ?? '';
+  const weekIndex = weeks.indexOf(currentWeek);
+  const gridDates = currentWeek ? fairerWeekDates(currentWeek) : [];
+  const changedWeeks = display ? fairerChangedWeeks(display, viewPerson?.id) : [];
+  const gridDisplay = display ? { ...display, doctors: display.doctors.filter(person => { const staff = ws.profile.staff.find(item => item.id === person.id); return !staff?.locum || staff.regularLocum; }) } : undefined;
   const progressWeeks = Math.max(1, Math.ceil(dateList.length / 7));
 
   return <section className="fairer-page page-content">
@@ -307,15 +270,15 @@ export function FairerRota({ go, openSessions }: { go: (page: Page) => void; ope
         <label><input type="radio" name="fairer-change-limit" checked={limit === 'none'} onChange={() => chooseLimit('none')} /> No limit</label>
         {fairerChangeLimitHint(limit, estimate) && <small>{fairerChangeLimitHint(limit, estimate)}</small>}
       </div></fieldset>
-      <fieldset className="fairer-segment"><legend>Days in a row at one place</legend>{(['none', 2, 3, 4] as const).map(value => <button key={value} type="button" className={maxDays === value ? 'selected' : ''} aria-pressed={maxDays === value} onClick={() => { setMaxDays(value); saveSettings({ maxDays: value }); }}>{value === 'none' ? 'No limit' : value}</button>)}</fieldset>
+      <fieldset className="fairer-segment"><legend>Days in a row at one place</legend>{(['none', 2, 3, 4] as const).map(value => <button key={value} type="button" className={maxDays === value ? 'selected' : ''} aria-pressed={maxDays === value} onClick={() => { setMaxDays(value); saveSettings({ maxDays: value }); }}>{value === 'none' ? 'No limit' : value}</button>)}<p className="fairer-control-help">Stops the suggestion putting someone at the same place more than this many days running.</p></fieldset>
     </div>
       <div className="fairer-consultant-controls"><p className="small muted">{consultantListState.kind === 'none' ? 'No consultant lists yet. They come from MediRota’s By activity pages.' : consultantListState.kind === 'configure' ? <>Consultant lists imported up to {consultantListState.date ? dateLabel(consultantListState.date) : 'an unknown date'}. To keep doctors with the same consultants, choose which session types in <button type="button" className="link-button" onClick={() => openSessions('same-consultants')}>Settings → Same consultants</button>.</> : consultantListState.kind === 'allocated' ? `Consultants allocated up to ${dateLabel(consultantListState.date)}` : 'No consultant lists match the selected session types.'}</p>{consistency.groupIds.length > 0 && hasConsultantLists && <SameConsultantsControl label={consistencyLabel} savedChoice={keepSameConsultants} changeLimit={limit} onChange={checked => { setKeepSameConsultants(checked); saveSettings({ keepSameConsultants: checked }); }} />}{allocationDate && end > allocationDate && <p className="small muted">Consultants are only known up to {dateLabel(allocationDate)}, so later weeks are not planned for consistency.</p>}</div>
-      <div className="fairer-targets"><div><b>Targets from Sessions</b><p>{types.map(type => `${type.name}: ${settings.groups.map(group => `${group.name} ${settings.ratios[type.id]?.[group.id] ?? 1}`).join(' · ')}`).join('  |  ') || 'No day session types are set up.'}</p></div><button onClick={() => openSessions('ratios')}>Edit in Settings → Sessions</button></div>
+      <div className="fairer-targets"><div><b>Shares from Sessions</b>{types.length ? types.map(type => <p key={type.id}>{fairerSharesLine(type, settings)}</p>) : <p>No day session types are set up.</p>}</div><button onClick={() => openSessions('ratios')}>Edit in Settings → Sessions</button></div>
       <div className="row fairer-actions">{running ? <><button onClick={cancel}>Cancel</button><span className="muted">{progress?.label ?? 'Starting'} · {progress?.elapsed.toFixed(1) ?? '0.0'}s</span></> : <button className="primary" onClick={startSolve} disabled={!dateList.length}>Make fairer rota</button>}</div>
       {longRange ? <p className="small muted">This can take up to 3 minutes.</p> : running && <p className="small muted">This can take up to 3 minutes.</p>}
       {running && <div className="progress" aria-label="Solver progress"><div style={{ width: `${fairerProgressPercent(progress?.elapsed ?? 0, progressWeeks)}%` }} /></div>}
       {error && <p className="quiet-warning" role="alert">{error}</p>}
-      <details className="fairer-how"><summary>How this works</summary><p>Only single-place mapped day jobs can move. On-calls, nights, long days, part shifts, extras, locums, leave, training, zero days, blanks and unmapped activities stay as imported. A doctor’s shift time and working day do not change. Profile rules are not applied to moved sessions.</p><p>The suggestion is held in memory only. It does not change or save over the imported rota.</p></details>
+      <details className="fairer-how"><summary>How this works</summary><p>Only day jobs at a single place can move. Nights, long days, on-calls, part shifts, extra shifts, locums, leave, training and zero days stay exactly as imported.</p><p>Nobody's working hours or days change, only where they work.</p><p>Working-time rules aren't checked for moved sessions.</p><p>This is a suggestion. It isn't saved and doesn't change your imported rota.</p></details>
       </>}
     </section>
     {model && suggestion && <div className="fairer-result"><section className="fairer-card fairer-summary-box"><strong>Suggestion, not the real rota</strong><h2>{limit === 'none' ? 'No limit · ' : ''}{movedCount} of {model.movable.length} sessions changed ({changesPercent}%)</h2>{favouredHeadline && <h3>{favouredHeadline}</h3>}<p className="muted fairer-summary-metrics">Weeks with 3+ days at one place {runShare(beforeRuns)} → {runShare(afterRuns)} · Longest run at one place {beforeRuns?.longest ?? 0} → {afterRuns?.longest ?? 0} days</p>
@@ -324,16 +287,17 @@ export function FairerRota({ go, openSessions }: { go: (page: Page) => void; ope
       </section>
       <FairerRatiosTable rows={rows} types={types} groups={orderedGroups} viewerGroupId={viewerComparison} />
       {showFairerConsultantCard({ enabled: !!model?.consultantPlan.enabled, hasConsistency: consistency.groupIds.length > 0 && consistency.typeIds.length > 0, hasReport: !!consultantSummary, fallbackCheck: consultantFallbackCheck }) && consultantSummary && <ConsultantCard report={consultantSummary} workspace={ws} viewId={viewPerson?.id} />}
-      {!gridOpen ? <button className="secondary fairer-grid-open" type="button" onClick={() => { const initial = fairerGridInitialState(); setChangedOnly(initial.changedOnly); setWeekJump(fairerWeekOptions(dateList)[0] ?? ''); setGridOpen(true); }}>Show suggested rota</button> : <>
-      <div className="fairer-grid-head"><div><h2>Suggested rota</h2><p className="muted small">Changed cells have an outline and a dot. Hover or tap for the previous activity.</p></div><label><input type="checkbox" checked={changedOnly} onChange={e => setChangedOnly(e.target.checked)} /> Changed cells only</label></div>
-      <label className="fairer-week-picker">Week <select value={weekJump} onChange={event => { const value = event.target.value as ISODate; setWeekJump(value); const wrap = gridWrapRef.current, header = document.getElementById(fairerWeekHeaderId(value)); if (wrap && header) { const nameColumnWidth = wrap.querySelector<HTMLElement>('.overview-person-col')?.getBoundingClientRect().width ?? 0; wrap.scrollTo({ left: fairerWeekScrollTarget(wrap.scrollLeft, wrap.getBoundingClientRect().left, header.getBoundingClientRect().left, nameColumnWidth), behavior: 'smooth' }); } }}>{fairerWeekOptions(dateList).map(week => <option key={week} value={week}>Week of {dateLabel(week)}</option>)}</select></label>
-      <div className="overview-legend">{types.map(type => <span key={type.id}><i className={`session-swatch c${type.colour}`} />{type.name}</span>)}</div>
-      <div className="overview-grid-wrap" ref={gridWrapRef}><table className="overview-grid fairer-grid"><thead><tr><th className="overview-person-col">Doctor</th>{gridDates.map(date => { const weekMonday = addDays(date, -weekday(date)); const isWeekAnchor = fairerWeekAnchorDate(weekMonday, gridDates) === date; return <th key={date} id={isWeekAnchor ? fairerWeekHeaderId(weekMonday) : undefined}><span>{new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' })}</span>{isWeekAnchor && <small>{new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { month: 'short' })}</small>}</th>; })}</tr></thead><tbody>
-        {viewPerson && (!changedOnly || gridDates.some(date => isChanged(viewPerson.id, date))) && <tr className="fairer-me"><th className="fairer-person">{viewPerson.name}</th>{gridDates.map(date => { const changed = isChanged(viewPerson.id, date), item = cellAssignment(viewPerson.id, date), day = snapshot.days[viewPerson.id]?.[date], consultants = consultantsForCell(viewPerson.id, date, item ?? baseAssignment(viewPerson.id, date)), label = (item ? placeName(item.roleId, model, roleNames) : day?.activity ?? (day?.status === 'leave' ? 'Leave' : day?.status === 'training' ? 'Training' : '')) + (consultants.length ? ` · ${consultantInitials(consultants)}` : ''), type = cellType(viewPerson.id, date), typeStyle = type && !day?.extra ? { backgroundColor: `var(--c${type.colour})`, color: `var(--c${type.colour}t)` } : undefined; return <td key={date}><span style={typeStyle} className={`fairer-cell ${changed ? 'is-changed' : ''} ${day?.extra ? 'is-extra' : ''} ${changedOnly && !changed ? 'is-filtered' : ''}`} title={`${consultants.join(' & ')}${changed ? ` · Was ${placeName(baseAssignment(viewPerson.id, date)?.roleId, model, roleNames)}` : day?.activity ?? day?.status ?? 'No entry'}`}>{changedOnly && !changed ? '' : label || '·'}{changed && <i>•</i>}</span></td>; })}</tr>}
-        {displayGroups.map(group => <Fragment key={group.id}>{(groupedDoctors.find(item => item.id === group.id)?.people ?? []).some(person => !changedOnly || gridDates.some(date => isChanged(person.id, date))) && <tr className="overview-group"><th colSpan={gridDates.length + 1}>{group.name || group.id}</th></tr>}{group.people.map(renderPerson)}</Fragment>)}
-      </tbody></table></div>
+      {display && <div className="fairer-export-actions"><button type="button" onClick={() => downloadFairerCsv(display)}>Download spreadsheet (CSV)</button><button type="button" onClick={() => window.print()}>Print or save as PDF</button><p className="small muted">Exports are made on your computer. Nothing is uploaded.</p></div>}
+      {!gridOpen ? <button className="secondary fairer-grid-open" type="button" onClick={() => { const initial = fairerGridInitialState(); setChangedOnly(initial.changedOnly); setWeekJump(weeks[0] ?? ''); setGridOpen(true); }}>Show suggested rota</button> : <>
+        <div className="fairer-grid-head"><h2>Suggested rota</h2><label><input type="checkbox" checked={changedOnly} onChange={e => setChangedOnly(e.target.checked)} /> Changed cells only</label></div>
+        <div className="fairer-week-controls"><button type="button" disabled={weekIndex <= 0} onClick={() => setWeekJump(weeks[weekIndex - 1]!)}>Previous week</button><label className="fairer-week-picker">Week <select value={currentWeek} onChange={event => setWeekJump(event.target.value)}>{weeks.map(week => <option key={week} value={week}>Week of {dateLabel(week)}</option>)}</select></label><button type="button" disabled={weekIndex >= weeks.length - 1} onClick={() => setWeekJump(weeks[weekIndex + 1]!)}>Next week</button>{viewPerson && <button type="button" disabled={!changedWeeks.length} onClick={() => setWeekJump(fairerNextChangeWeek(changedWeeks, currentWeek)!)}>{changedWeeks.length ? 'Jump to my changes' : 'No changes for you'}</button>}</div>
+        {gridDisplay && <FairerGrid key={`${currentWeek}-${changedOnly}`} display={gridDisplay} dates={gridDates} changedOnly={changedOnly} viewerId={viewPerson?.id} groups={orderedGroups} />}
+        <p className="overview-asof fairer-asof">Suggestion only · Imported rota remains unchanged.</p>
       </>}
-      {gridOpen && <p className="overview-asof">Suggestion only · Imported rota remains unchanged.</p>}
+      {gridDisplay && createPortal(<div className="fairer-print-root">{weeks.map((week, index) => <section className="fairer-print-week" key={week}>
+        {index === 0 && <><div className="fairer-print-summary"><h1>Fairer rota: suggestion, not the real rota</h1><p>{dateLabel(resultDates[0]!)} to {dateLabel(resultDates.at(-1)!)} · {movedCount} of {model.movable.length} sessions changed ({changesPercent}%)</p><p>Weeks with 3+ days at one place {runShare(beforeRuns)} → {runShare(afterRuns)} · Longest run {beforeRuns?.longest ?? 0} → {afterRuns?.longest ?? 0} days</p>{favouredHeadline && <p>{favouredHeadline}</p>}<FairerResultNotes notes={resultNotes} fallbackCheck={consultantFallbackCheck} /></div><FairerRatiosTable rows={rows} types={types} groups={orderedGroups} viewerGroupId={viewerComparison} printing /></>}
+        <h2>Week of {dateLabel(week)}</h2><FairerGrid display={gridDisplay} dates={fairerWeekDates(week)} changedOnly={false} viewerId={viewPerson?.id} groups={orderedGroups} printing />
+      </section>)}</div>, document.body)}
     </div>}
   </section>;
 }
@@ -344,7 +308,7 @@ export function showFairerConsultantCard({ enabled, hasConsistency, hasReport, f
 }
 
 export function FairerResultNotes({ notes, fallbackCheck, onTryAgain }: { notes: string[]; fallbackCheck?: string; onTryAgain?: () => void }) {
-  return <>{notes.map(note => <p className="quiet-note" key={note}>{note}{fallbackCheck === 'fairness-over-allowance' && onTryAgain && <button className="fairer-try-again" type="button" onClick={onTryAgain}>Try again</button>}</p>)}</>;
+  return <>{notes.map(note => <p className="quiet-note" key={note}>{fairerDisplayNote(note)}{fallbackCheck === 'fairness-over-allowance' && onTryAgain && <button className="fairer-try-again" type="button" onClick={onTryAgain}>Try again</button>}</p>)}</>;
 }
 
 export function FairerConsultantOutcome({ notes, fallbackCheck, report, workspace, viewId, enabled, hasConsistency, onTryAgain }: {
@@ -356,13 +320,17 @@ export function FairerConsultantOutcome({ notes, fallbackCheck, report, workspac
   </>;
 }
 
-export function FairerRatiosTable({ rows, types, groups, viewerGroupId }: { rows: SummaryRow[]; types: { id: string; name: string }[]; groups: { id: string; name: string; groupId: string }[]; viewerGroupId?: string }) {
+export function FairerRatiosTable({ rows, types, groups, viewerGroupId, printing = false }: { rows: SummaryRow[]; types: { id: string; name: string }[]; groups: { id: string; name: string; groupId: string }[]; viewerGroupId?: string; printing?: boolean }) {
   const activeTypes = types.filter(type => rows.some(row => row.typeId === type.id && row.before > 0));
-  const value = (row: SummaryRow) => `${row.capacity ? Math.round(row.before / row.capacity * 100) : 0}% → ${row.capacity ? Math.round(row.after / row.capacity * 100) : 0}% (${row.capacity ? Math.round(row.aim / row.capacity * 100) : 0}%)`;
-  const offTarget = (row: SummaryRow) => row.capacity > 0 && Math.abs((row.after - row.aim) / row.capacity * 100) > 2;
-  return <section className="fairer-card fairer-ratios-card"><h2>Share of each place: MediRota → suggestion (aim)</h2>
-    <div className="fairer-ratios-desktop"><div className="fairer-table-scroll"><table className="fairer-summary-table"><thead><tr><th>Session type</th>{groups.map(group => <th key={group.id}>{group.name}{group.id === viewerGroupId && <span className="fairer-you-tag">You</span>}</th>)}</tr></thead><tbody>{activeTypes.map(type => <tr key={type.id}><th scope="row">{type.name}</th>{groups.map(group => { const row = rows.find(item => item.typeId === type.id && item.groupId === group.id); return <td className={row && offTarget(row) ? 'is-off-target' : ''} key={group.id}>{row ? value(row) : '·'}</td>; })}</tr>)}</tbody></table></div></div>
-    <div className="fairer-ratios-mobile">{activeTypes.map(type => <article className="fairer-ratio-type" key={type.id}><h3>{type.name}</h3>{groups.map(group => { const row = rows.find(item => item.typeId === type.id && item.groupId === group.id); return row ? <p className={`${group.id === viewerGroupId ? 'is-viewer' : ''} ${offTarget(row) ? 'is-off-target' : ''}`} key={group.id}><b>{group.name}{group.id === viewerGroupId && <span className="fairer-you-tag">You</span>}</b><span>{value(row)}</span></p> : null; })}</article>)}</div>
+  const percent = (value: number, capacity: number) => `${capacity ? Math.round(value / capacity * 100) : 0}%`;
+  const pct = (value: number, capacity: number) => capacity ? value / capacity * 100 : 0;
+  const markFor = (row: SummaryRow) => fairerShareMark(pct(row.before, row.capacity), pct(row.after, row.capacity), pct(row.aim, row.capacity));
+  const value = (row: SummaryRow) => { const mark = markFor(row); return <>{percent(row.before, row.capacity)} → {percent(row.after, row.capacity)}{mark && <> <span className="fairer-share-mark" aria-label={mark === '✓' ? 'closer to the aim' : 'further from the aim'}>{mark}</span></>}</>; };
+  const aim = (typeId: string) => <small className="fairer-aim">Aim: {groups.flatMap(group => { const row = rows.find(item => item.typeId === typeId && item.groupId === group.id); return row ? [`${group.name} ${percent(row.aim, row.capacity)}`] : []; }).join(' · ')}</small>;
+  return <section className="fairer-card fairer-ratios-card"><h2>Share of each place</h2>
+    <div className="fairer-ratios-desktop"><div className="fairer-table-scroll"><table className="fairer-summary-table"><thead><tr><th>Session type</th>{groups.map(group => <th key={group.id}>{group.name}{group.id === viewerGroupId && <span className="fairer-you-tag">You</span>}</th>)}</tr></thead><tbody>{activeTypes.map(type => <tr key={type.id}><th scope="row">{type.name}{aim(type.id)}</th>{groups.map(group => { const row = rows.find(item => item.typeId === type.id && item.groupId === group.id); return <td key={group.id}>{row ? value(row) : '·'}</td>; })}</tr>)}</tbody></table></div></div>
+    {!printing && <div className="fairer-ratios-mobile">{activeTypes.map(type => <article className="fairer-ratio-type" key={type.id}><h3>{type.name}</h3>{aim(type.id)}{groups.map(group => { const row = rows.find(item => item.typeId === type.id && item.groupId === group.id); return row ? <p key={group.id}><b>{group.name}{group.id === viewerGroupId && <span className="fairer-you-tag">You</span>}</b><span>{value(row)}</span></p> : null; })}</article>)}</div>}
+    <p className="fairer-share-key">MediRota → suggestion. ✓ closer to the aim, ✗ further from it.</p>
     {!activeTypes.length && <p className="small muted">No movable day sessions in this range.</p>}
   </section>;
 }

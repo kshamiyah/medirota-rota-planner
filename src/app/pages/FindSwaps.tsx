@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { detectPatterns, type ReturnWindow, type SwapPlan, type SwapRequest, type SwapResult, type SwapSettings, type SwapUnit } from '../../engine/swaps';
+import { detectPatterns, type ReturnWindow, type SwapPlan, type SwapResult, type SwapSettings, type SwapUnit } from '../../engine/swaps';
 import type { ISODate, Staff, Weekday } from '../../engine/types';
 import { weekday } from '../../engine/calendar';
 import { MultiSelect } from '../components/MultiSelect';
@@ -7,13 +7,14 @@ import { HoursAlertNotice } from '../components/HoursAlert';
 import { SwapDateCalendar } from '../components/SwapDateCalendar';
 import { Empty, formatDateLong, PageHead, WEEKDAY_NAMES } from '../components/ui';
 import { update, useWorkspace, type SwapRecentSearch } from '../store';
-import { annualLeaveInputs, appendSwapPlans, calendarColumns, chainSentences, completePlansFirst, staffingSummaryLine, swapPlanNotes, datesOutsideImports, doctorCountText, groupSwapPlans, hoursSuggestionText, inclusiveDates, latestImport, localISODate, partialCoverageTitle, planChainSize, planFilterCounts, planIdentity, swapGroupHeading, swapLimitMessages, swapOptionPeople, swapRequesterPeople, swapResultIsCurrent, swapSettingsFingerprint, unitDescription, weekendActivities, withDeclinedDoctor, type SwapFormInputs, type SwapPlanFilter, type SwapResultHides } from '../swapsView';
+import { annualLeaveInputs, displayRuledOutReason, appendSwapPlans, calendarColumns, chainSentences, completePlansFirst, staffingSummaryLine, swapPlanNotes, datesOutsideImports, doctorCountText, groupSwapPlans, hoursSuggestionText, inclusiveDates, latestImport, localISODate, partialCoverageTitle, planChainSize, planFilterCounts, planIdentity, swapGroupHeading, swapLimitMessages, swapOptionPeople, swapRequesterPeople, swapResultIsCurrent, swapSettingsFingerprint, unitDescription, weekendActivities, withDeclinedDoctor, type SwapFormInputs, type SwapPlanFilter, type SwapResultHides } from '../swapsView';
 import type { SwapWorkerMessage, SwapWorkerRequest } from '../swaps.worker';
 import { DEFAULT_SHARE_LIMIT, makeShareContent, renderDayJobSwapPng, renderSharePng, shareText } from '../swapShare';
 import type { Page } from './types';
 import { analyseLeaveCheck, leaveCheckDayLine } from '../leaveCheck';
 import { defaultSessionsSettings } from '../sessions';
 import { dayJobSwapText, findDayJobSwapOptions, type DayJobSwapResult } from '../dayJobSwaps';
+import { buildSwapRequest } from '../swapRequest';
 import { advanceSwapWizard, initialSwapRequesterId, isColleagueSwapRequester, leaveNeedsNoSwap, leaveStep5SkipStartsSearch, showSwapSearchFormCard, swapWizardTitles } from '../swapWizard';
 
 const SWAP_SEARCH_LIMIT_MS = 60_000;
@@ -53,22 +54,8 @@ function personSummary(staff: Staff[], ids: string[]): string {
   return ids.map(id => doctorName(staff, id)).join(', ');
 }
 
-export function displayRuledOutReason(reason: string): string {
-  if (reason === "A valid swap exists but wasn't shown because of the plan limit.") return "There's a swap with this person, but it didn't make the first page. Use Find 50 more to see it.";
-  const statusWords: Record<string, string> = { night: "They're on a night.", dayJob: "They're on a day job.", longDay: "They're on a long day.", partShift: "They're on a part shift.", 'not imported': "Their week isn't imported.", training: "They're on training.", leave: "They're on leave.", available: "They're marked as available.", notAvailable: "They're marked as not available.", blank: "Their week isn't imported." };
-  let text = reason
-    .replace('The doctor is not off (night).', "They're on a night.")
-    .replace('The doctor is not off (dayJob).', "They're on a day job.")
-    .replace('The doctor is not off (longDay).', "They're on a long day.")
-    .replace('The doctor is not off (partShift).', "They're on a part shift.")
-    .replace('The doctor is not off (not imported).', "Their week isn't imported.")
-    .replace('Not on the rota on these dates', "Their week isn't imported")
-    .replace('Marked available rather than off', 'Marked as available')
-    .replace('Working ', 'On ')
-    .replace(/\bdayJob\b/g, 'day job');
-  text = text.replace(/The doctor is not off \(([^)]+)\)\./, (_match, status: string) => statusWords[status] ?? "They're working.");
-  return text.replace(/\b\d{4}-\d{2}-\d{2}\b/g, value => new Date(`${value}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }));
-}
+/** Moved to swapsView.ts so non-page code can share it; re-exported for existing imports. */
+export { displayRuledOutReason } from '../swapsView';
 
 function Calendar({ plan, staff, snapshot }: { plan: SwapPlan; staff: Staff[]; snapshot: NonNullable<ReturnType<typeof useWorkspace>['swapFinder']>['snapshot'] }) {
   const [after, setAfter] = useState(false);
@@ -352,8 +339,7 @@ export function FindSwaps({ go }: { go: (page: Page) => void }) {
       if (event.data.type === 'error') { setError(event.data.message); setRunning(false); nextWorker.terminate(); if (timer.current) window.clearInterval(timer.current); }
     };
     nextWorker.onerror = event => { setError(event.message || 'The search could not be completed.'); setRunning(false); nextWorker.terminate(); if (timer.current) window.clearInterval(timer.current); };
-    const request: SwapRequest = { staffId: requestInputs.staffId, leaveDates: requestInputs.leaveDates, leaveType: 'annual', cantWorkDates: requestInputs.cantWorkDates, excludeStaffIds: requestInputs.excludedStaffIds, includeNormalDays: requestInputs.includeNormalDays, today: localISODate(), planLimits, returnPattern: requestInputs.returnPattern, returnDayType: requestInputs.returnDayType, returnWindow: requestInputs.returnWindow, noAlertsOnly: requestInputs.noAlertsOnly, askMode: requestInputs.askMode, askStaffIds: requestInputs.askStaffIds, deadlineMs: appendFrom ? 180_000 : keepLooking ? 180_000 : SWAP_SEARCH_LIMIT_MS };
-    const payload: SwapWorkerRequest = { profile: ws.profile, snapshot: data.snapshot, settings: { ...data.settings, maxChain: requestInputs.maxChain ?? data.settings.maxChain }, request };
+    const payload: SwapWorkerRequest = buildSwapRequest(ws, requestInputs, localISODate(), appendFrom ? 180_000 : keepLooking ? 180_000 : SWAP_SEARCH_LIMIT_MS, planLimits);
     nextWorker.postMessage(payload);
   };
   const decline = (id: string, resultInputs: SwapFormInputs) => {
