@@ -1,13 +1,18 @@
 import { useDeferredValue, useMemo, useState, useEffect, useRef, type ReactNode } from 'react';
 import { addDays } from '../../engine/calendar';
+import type { ISODate } from '../../engine/types';
 import { applyImport, CHANGEOVER_WEEKS, consultantListsOnly, MAX_WEEKS, planImport, previewImport, type ImportPlan, type ImportProblem, type ImportResult, type PersonPlan, type Treat } from '../mediImport';
 import { importable, isActivityWeek, isPersonWeek, parseActivityWeek, parsePersonWeek, type ActivityWeek, type PersonWeek } from '../medirota';
 import { update, useWorkspace } from '../store';
 import { formatDateLong, PageHead, WEEKDAY_NAMES } from '../components/ui';
-import { appUrl, FETCH_CHANNEL, FETCH_VERSION, fetchWeekDates, formatWeekOf, isFetchBundle, makeFetchBookmark, snapToMonday, type ParsedFetchedWeek } from '../fetchBookmark';
+import { FetchBookmarkLink } from '../components/FetchBookmarkLink';
+import { appUrl, FETCH_CHANNEL, FETCH_VERSION, fetchWeekDates, fetchedWeekIsEmpty, formatWeekOf, isFetchBundle, makeFetchBookmark, snapToMonday, stopAfterTwoEmptyWeeks, type ParsedFetchedWeek } from '../fetchBookmark';
 import { createPlannerProtocol } from '../fetchProtocol';
 import { localISODate } from '../swapsView';
 import type { Page } from './types';
+import { readSetupReview, saveSetupReview } from '../setupReview';
+import { placeName } from '../placeName';
+import { parseFetchedPersonWeek } from '../fetchedWeek';
 
 /**
  * Importing MediRota weeks as a short wizard: one question per step, and
@@ -67,31 +72,45 @@ function stepsFor(plan: ImportPlan | null): Record<Step, boolean> {
 interface Files { person: PersonWeek[]; activity: ActivityWeek[]; errors: string[] }
 type Done = { result: ImportResult; dates: string } | { lists: number };
 
-export function Import({ go, embedded = false, showFetchDone = false }: { go: (p: Page) => void; embedded?: boolean; showFetchDone?: boolean }) {
+export function Import({ go, embedded = false, showFetchDone = false, firstTimeFetch = false, setupReview = false, onReturnToSetup }: { go: (p: Page) => void; embedded?: boolean; showFetchDone?: boolean; firstTimeFetch?: boolean; setupReview?: boolean; onReturnToSetup?: () => void }) {
   const ws = useWorkspace();
-  const [files, setFiles] = useState<Files>({ person: [], activity: [], errors: [] });
-  const [plan, setPlan] = useState<ImportPlan | null>(null);
+  const stagedReview = setupReview ? readSetupReview() : undefined;
+  const [files, setFiles] = useState<Files>(() => stagedReview ? { person: stagedReview.personWeeks, activity: stagedReview.activityWeeks, errors: [] } : { person: [], activity: [], errors: [] });
+  // "Check the details" / full review: BASE locum guess (pre-tick extra-only), keeping any summary fixes.
+  const [plan, setPlan] = useState<ImportPlan | null>(() => {
+    if (!stagedReview) return null;
+    const base = planImport(ws, stagedReview.personWeeks, stagedReview.activityWeeks);
+    return {
+      ...stagedReview,
+      people: stagedReview.people.map(person => {
+        const guessed = base.people.find(item => item.mediRotaId === person.mediRotaId);
+        return guessed ? { ...person, locum: guessed.locum } : person;
+      }),
+    };
+  });
   const [step, setStep] = useState<Step>('files');
   const [done, setDone] = useState<Done | null>(null);
   const [fetchMode, setFetchMode] = useState(() => new URLSearchParams(location.search).get('fetchFromMediRota') === '1');
   const [fetchStart, setFetchStart] = useState(() => snapToMonday(mondayToday()));
-  const [fetchEnd, setFetchEnd] = useState(() => snapToMonday(ws.medirotaFetch?.lastEndWeek ?? ''));
+  const [fetchEnd, setFetchEnd] = useState(() => snapToMonday(addDays(mondayToday() as ISODate, 59 * 7)));
   const [fetchState, setFetchState] = useState<{ active: boolean; expected: number; weeks: ParsedFetchedWeek[] }>({ active: false, expected: 0, weeks: [] });
   const [fetchMessage, setFetchMessage] = useState('');
+  const [trustOrigin, setTrustOrigin] = useState('');
+  const pendingTrust = useRef<{ origin: string; source: MessageEventSource; data: { channel: string; type: string } } | undefined>(undefined);
+  const protocolRef = useRef<ReturnType<typeof createPlannerProtocol> | undefined>(undefined);
   const fileRef = useRef<HTMLInputElement>(null);
   const fetchRef = useRef<{ stop: boolean; source?: WindowProxy; origin?: string; trusted: Set<string> }>({ stop: false, trusted: new Set(ws.medirotaFetch?.trustedOrigins ?? []) });
   fetchRef.current.trusted = new Set(ws.medirotaFetch?.trustedOrigins ?? fetchRef.current.trusted);
   const bookmark = useMemo(() => makeFetchBookmark(appUrl()), []);
-  const bookmarkRef = useRef<HTMLAnchorElement>(null);
-  useEffect(() => { if (bookmarkRef.current) bookmarkRef.current.setAttribute('href', bookmark); }, [bookmark]);
   const latestRef = useRef({ ws, files });
   latestRef.current = { ws, files };
+  useEffect(() => { if (done && fetchMode && firstTimeFetch) window.close(); }, [done, fetchMode, firstTimeFetch]);
   useEffect(() => {
     const protocol = createPlannerProtocol({
       source: (window.opener ?? window) as MessageEventSource,
       reply: { postMessage: (message, targetOrigin) => (window.opener as WindowProxy | null)?.postMessage(message, targetOrigin) },
       isTrusted: origin => fetchRef.current.trusted.has(origin),
-      confirmTrust: origin => window.confirm(`Accept rota data from ${origin}?`),
+      confirmTrust: origin => { setTrustOrigin(origin); return false; },
       saveTrust: origin => {
         fetchRef.current.trusted.add(origin);
         update(w => { w.medirotaFetch = { ...w.medirotaFetch, trustedOrigins: [...new Set([...(w.medirotaFetch?.trustedOrigins ?? []), origin])] }; });
@@ -100,7 +119,7 @@ export function Import({ go, embedded = false, showFetchDone = false }: { go: (p
         if (message.type === 'week') {
           if (fetchRef.current.stop) return;
           const html = typeof message.html === 'string' ? message.html : '';
-          const person = message.status === 200 && isPersonWeek(html) ? parsePersonWeek(html) : undefined;
+          const person = parseFetchedPersonWeek(Number(message.status), html);
           const activityHtml = typeof message.activityHtml === 'string' ? message.activityHtml : '';
           const activity = message.activityStatus === 200 && isActivityWeek(activityHtml) ? parseActivityWeek(activityHtml) : undefined;
           if (message.status && /login|sign in|password/i.test(html.slice(0, 4000)) && !person) {
@@ -108,7 +127,19 @@ export function Import({ go, embedded = false, showFetchDone = false }: { go: (p
             fetchRef.current.stop = true;
             return;
           }
-          setFetchState(current => ({ ...current, weeks: [...current.weeks, { start: String(message.start), person, activity, noRota: !person }] }));
+          const status = Number(message.status);
+          const received: ParsedFetchedWeek = { start: String(message.start), person, activity, noRota: fetchedWeekIsEmpty(status, !!person) };
+          setFetchState(current => {
+            const weeks = [...current.weeks, received];
+            const stopForNoRota = stopAfterTwoEmptyWeeks(weeks, current.expected);
+            if (stopForNoRota) queueMicrotask(() => {
+              fetchRef.current.stop = true;
+              if (fetchRef.current.source && fetchRef.current.origin) fetchRef.current.source.postMessage({ channel: FETCH_CHANNEL, type: 'stop' }, fetchRef.current.origin);
+              setFetchState(state => ({ ...state, active: false, weeks }));
+              loadFetched(weeks);
+            });
+            return { ...current, active: stopForNoRota ? false : current.active, weeks };
+          });
         } else if (message.type === 'error') {
           if (!fetchRef.current.stop) setFetchState(current => ({ ...current, weeks: [...current.weeks, { start: String(message.start), error: String(message.message) }] }));
         } else if (message.type === 'done') {
@@ -120,12 +151,17 @@ export function Import({ go, embedded = false, showFetchDone = false }: { go: (p
         }
       },
     });
+    protocolRef.current = protocol;
     const listener = (event: MessageEvent) => {
+      if (event.data?.channel === FETCH_CHANNEL && event.data?.type === 'hello' && event.source) pendingTrust.current = { origin: event.origin, source: event.source, data: event.data };
       const handled = protocol.receive({ origin: event.origin, source: event.source, data: event.data });
       if (handled && event.data?.channel === FETCH_CHANNEL && event.data?.type === 'hello') { fetchRef.current.source = event.source as WindowProxy; fetchRef.current.origin = event.origin; }
+      if (handled && event.data?.channel === FETCH_CHANNEL && event.data?.type === 'week' && event.data.status === 200 && isPersonWeek(String(event.data.html ?? ''))) update(workspace => { workspace.medirotaFetch = { ...workspace.medirotaFetch, trustedOrigins: workspace.medirotaFetch?.trustedOrigins ?? [], origin: event.origin }; });
     };
     const ready = () => {
-      if (new URLSearchParams(location.search).get('fetchFromMediRota') === '1' && window.opener) window.opener.postMessage({ channel: FETCH_CHANNEL, type: 'rota-planner-ready', version: FETCH_VERSION }, '*');
+      // Data-free handshake only. Prefer the referrer origin; fall back to '*' like BASE when MediRota strips it.
+      const origin = (() => { try { return new URL(document.referrer).origin; } catch { return ''; } })();
+      if (new URLSearchParams(location.search).get('fetchFromMediRota') === '1' && window.opener) window.opener.postMessage({ channel: FETCH_CHANNEL, type: 'rota-planner-ready', version: FETCH_VERSION }, origin || '*');
     };
     window.addEventListener('message', listener);
     ready();
@@ -138,18 +174,43 @@ export function Import({ go, embedded = false, showFetchDone = false }: { go: (p
     if (!opener) { setFetchMessage('Open a MediRota By person week and click the bookmark to start a fetch.'); return; }
     update(w => { w.medirotaFetch = { ...w.medirotaFetch, trustedOrigins: [...(w.medirotaFetch?.trustedOrigins ?? [])], lastEndWeek: fetchEnd }; });
     fetchRef.current.stop = false; setFetchState({ active: true, expected: dates.length, weeks: [] }); setFetchMessage('');
-    opener.postMessage({ channel: FETCH_CHANNEL, type: 'fetch', dates }, fetchRef.current.origin ?? '*');
+    if (!fetchRef.current.origin) { setFetchMessage('The MediRota tab needs to be trusted before it can receive rota data.'); return; }
+    opener.postMessage({ channel: FETCH_CHANNEL, type: 'fetch', dates }, fetchRef.current.origin);
   };
-  const stopFetch = () => { fetchRef.current.stop = true; fetchRef.current.source?.postMessage({ channel: FETCH_CHANNEL, type: 'stop' }, fetchRef.current.origin ?? '*'); setFetchState(s => ({ ...s, active: false })); if (fetchState.weeks.length) loadFetched(fetchState.weeks); };
+  const stopFetch = () => { fetchRef.current.stop = true; if (fetchRef.current.source && fetchRef.current.origin) fetchRef.current.source.postMessage({ channel: FETCH_CHANNEL, type: 'stop' }, fetchRef.current.origin); setFetchState(s => ({ ...s, active: false })); if (fetchState.weeks.length) loadFetched(fetchState.weeks); };
   const loadFetched = (results: ParsedFetchedWeek[]) => {
     const good = results.flatMap(w => w.person ? [w.person] : []);
     const goodActivity = results.flatMap(w => w.activity ? [w.activity] : []);
     if (good.length) {
       const current = latestRef.current;
       const next = { ...current.files, person: [...new Map([...current.files.person, ...good].map(w => [w.start, w])).values()].sort((a,b) => a.start.localeCompare(b.start)), activity: [...new Map([...current.files.activity, ...goodActivity].map(w => [w.start, w])).values()].sort((a,b) => a.start.localeCompare(b.start)), errors: results.filter(w => !w.person).map(w => `No rota found for w/c ${formatDateLong(w.start)} ${w.start.slice(0, 4)}.`) };
-      setFiles(next); setPlan(planImport(current.ws, next.person, next.activity)); setStep('files');
+      const importPlan = planImport(current.ws, next.person, next.activity, firstTimeFetch ? { firstTimeSummary: true } : undefined);
+      setFiles(next);
+      if (fetchMode && firstTimeFetch) {
+        // First-time setup: accept into the summary path; bookmark tab closes.
+        if (importPlan.firstTime) saveSetupReview(importPlan);
+        let result: ImportResult | undefined;
+        update(workspace => { result = applyImport(workspace, importPlan); });
+        if (result) setDone({ result, dates: `${formatDateLong(importPlan.dates[0]!)} – ${formatDateLong(importPlan.dates.at(-1)!)}` });
+      } else {
+        // Later imports keep the full review, including when the bookmark tab is used after setup.
+        setPlan(importPlan); setStep('files');
+      }
     }
   };
+
+  const allowTrust = () => {
+    const pending = pendingTrust.current;
+    if (!pending || !protocolRef.current) return;
+    fetchRef.current.trusted.add(pending.origin);
+    update(workspace => { workspace.medirotaFetch = { ...workspace.medirotaFetch, trustedOrigins: [...new Set([...(workspace.medirotaFetch?.trustedOrigins ?? []), pending.origin])] }; });
+    fetchRef.current.source = pending.source as WindowProxy;
+    fetchRef.current.origin = pending.origin;
+    protocolRef.current.receive({ origin: pending.origin, source: pending.source, data: pending.data });
+    pendingTrust.current = undefined;
+    setTrustOrigin('');
+  };
+  const cancelTrust = () => { pendingTrust.current = undefined; setTrustOrigin(''); };
 
 
   const read = async (list: FileList | File[]) => {
@@ -179,19 +240,22 @@ export function Import({ go, embedded = false, showFetchDone = false }: { go: (p
   const back = () => setStep(live[Math.max(0, at - 1)]);
   const firstTime = plan?.firstTime ?? (ws.profile.staff.length === 0 && ws.profile.roles.length === 0);
 
-  if (done && fetchMode && showFetchDone) return <section className="card fetch-tab-done" role="status"><h2>Import complete</h2><p>Done. Your other Rota Planner tab is up to date. You can close this one.</p><div className="row"><button type="button" className="primary" onClick={() => window.close()}>Close this tab</button><button type="button" onClick={() => go('overview')}>Stay here</button></div></section>;
+  if (done && fetchMode && firstTimeFetch) return <section className="fetch-tab-done" role="status"><h1>Done. Go back to your Rota Planner tab.</h1><p>Your rota is ready for a quick look.</p><button type="button" className="primary" onClick={() => window.close()}>Close this tab</button></section>;
+  if (done && fetchMode && showFetchDone) return <section className="fetch-tab-done" role="status"><h1>Done. Your other Rota Planner tab is up to date.</h1><p>You can close this one.</p><div className="row"><button type="button" className="primary" onClick={() => window.close()}>Close this tab</button><button type="button" onClick={() => go('overview')}>Stay here</button></div></section>;
   if (done && embedded) return null;
-  if (done) return (<><PageHead title="Import from MediRota" /><DoneCard done={done} go={go} again={() => { setDone(null); reset(); }} /></>);
+  if (done) return (<><PageHead title="Import from MediRota" /><DoneCard done={done} go={go} again={() => { setDone(null); reset(); }} onReturnToSetup={onReturnToSetup} /></>);
+
+  if (fetchMode && !plan) return <FetchPanel mode={fetchMode} minimal setMode={setFetchMode} start={fetchStart} setStart={setFetchStart} end={fetchEnd} setEnd={setFetchEnd} bookmark={bookmark} origin={ws.medirotaFetch?.origin} message={fetchMessage} progress={fetchState} onFetch={startFetch} onStop={stopFetch} onReview={() => loadFetched(fetchState.weeks)} onFile={() => fileRef.current?.click()} onForget={() => update(w => { if (w.medirotaFetch) w.medirotaFetch.trustedOrigins = []; })} trustOrigin={trustOrigin} onAllowTrust={allowTrust} onCancelTrust={cancelTrust} />;
 
   return (
     <>
-      {!embedded && <PageHead title={firstTime ? 'Set up from MediRota' : 'Import from MediRota'}>
+      {!embedded && !fetchMode && <PageHead title={firstTime ? 'Set up from MediRota' : 'Import from MediRota'}>
         {firstTime
           ? 'A few short steps: the app reads your doctors, places, leave and booked shifts from MediRota, and you check them before anything changes.'
           : 'Bring in the latest weeks. Leave and booked nights and long days are updated; anything you entered by hand is kept.'}
       </PageHead>}
 
-      {!plan && <FetchPanel mode={fetchMode} setMode={setFetchMode} start={fetchStart} setStart={setFetchStart} end={fetchEnd} setEnd={setFetchEnd} bookmark={bookmark} bookmarkRef={bookmarkRef} message={fetchMessage} progress={fetchState} onFetch={startFetch} onStop={stopFetch} onReview={() => loadFetched(fetchState.weeks)} onFile={() => fileRef.current?.click()} onForget={() => update(w => { if (w.medirotaFetch) w.medirotaFetch.trustedOrigins = []; })} />}
+      {!plan && <FetchPanel mode={fetchMode} minimal={fetchMode} setMode={setFetchMode} start={fetchStart} setStart={setFetchStart} end={fetchEnd} setEnd={setFetchEnd} bookmark={bookmark} origin={ws.medirotaFetch?.origin} message={fetchMessage} progress={fetchState} onFetch={startFetch} onStop={stopFetch} onReview={() => loadFetched(fetchState.weeks)} onFile={() => fileRef.current?.click()} onForget={() => update(w => { if (w.medirotaFetch) w.medirotaFetch.trustedOrigins = []; })} trustOrigin={trustOrigin} onAllowTrust={allowTrust} onCancelTrust={cancelTrust} />}
       {plan && <Stepper step={step} has={has} onStep={setStep} />}
 
       {step === 'files' && (
@@ -205,6 +269,7 @@ export function Import({ go, embedded = false, showFetchDone = false }: { go: (p
       {plan && step === 'activities' && <ActivitiesStep plan={plan} setPlan={setPlan} files={files} />}
       {plan && step === 'needs' && <NeedsStep plan={plan} setPlan={setPlan} />}
       {plan && step === 'review' && <ReviewStep plan={plan} setPlan={setPlan} skipped={STEPS.filter(s => !has[s.id]).map(s => s.label)} />}
+      {setupReview && onReturnToSetup && <p><button type="button" className="link-button" onClick={onReturnToSetup}>Return to setup</button></p>}
 
       {plan && (
         <div className="wizard-nav">
@@ -227,17 +292,37 @@ export function Import({ go, embedded = false, showFetchDone = false }: { go: (p
 }
 
 function mondayToday() { const date = new Date(); date.setDate(date.getDate() - ((date.getDay() + 6) % 7)); return localISODate(date); }
-function FetchPanel(props: { mode: boolean; setMode: (v: boolean) => void; start: string; setStart: (v: string) => void; end: string; setEnd: (v: string) => void; bookmark: string; bookmarkRef: React.RefObject<HTMLAnchorElement | null>; message: string; progress: { active: boolean; expected: number; weeks: ParsedFetchedWeek[] }; onFetch: () => void; onStop: () => void; onReview: () => void; onFile: () => void; onForget: () => void }) {
+function FetchPanel(props: {
+  mode: boolean; minimal: boolean; setMode: (v: boolean) => void; start: string; setStart: (v: string) => void; end: string; setEnd: (v: string) => void;
+  bookmark: string; origin?: string; message: string; progress: { active: boolean; expected: number; weeks: ParsedFetchedWeek[] };
+  onFetch: () => void; onStop: () => void; onReview: () => void; onFile: () => void; onForget: () => void;
+  trustOrigin: string; onAllowTrust: () => void; onCancelTrust: () => void;
+}) {
   const dates = fetchWeekDates(props.start, props.end);
   const weeks = dates.length;
-  return <section className="card"><h2>Fetch from MediRota</h2><p className="muted">Fetch the By person weeks open to your account, then check them in the usual import steps.</p>
-    <div className="row"><a ref={props.bookmarkRef} href="#" draggable="true">Fetch from MediRota</a><button type="button" onClick={() => void navigator.clipboard?.writeText(props.bookmark).then(() => alert('Bookmark code copied.'))}>Copy bookmark code</button><button type="button" onClick={props.onFile}>Choose HTML or JSON bundle</button></div>
-    <p className="small muted">Drag the link to your bookmarks bar. It reuses the Rota Planner tab when it is still open.</p><p className="small muted">Dragged this before 17 November 2026? Drag it again to get the newer version.</p><button type="button" className="ghost small" onClick={() => props.setMode(!props.mode)}>{props.mode ? 'Hide fetch form' : 'Show fetch form'}</button>
-    {props.mode && <div className="row" style={{ marginTop: 12 }}><label>Start week <input type="date" value={props.start} onChange={e => props.setStart(snapToMonday(e.target.value))} /><small className="small muted">{formatWeekOf(props.start)}</small></label><label>End week <input type="date" value={props.end} onChange={e => props.setEnd(snapToMonday(e.target.value))} /><small className="small muted">{formatWeekOf(props.end)}</small></label><span>{weeks > 0 ? `${weeks} ${weeks === 1 ? 'week' : 'weeks'}` : 'Choose an end week'}</span>{props.progress.active ? <button type="button" onClick={props.onStop}>Stop</button> : <button type="button" className="primary" onClick={props.onFetch}>Fetch</button>}</div>}
-    {props.progress.active && <p role="status">Fetched {props.progress.weeks.length} of {props.progress.expected} weeks</p>}{props.message && <div className="notice warn">{props.message}</div>}
-    {props.progress.weeks.some(w => w.noRota || w.error) && <p className="small">{props.progress.weeks.filter(w => w.noRota || w.error).map(w => `No rota found for w/c ${formatDateLong(w.start)} ${w.start.slice(0, 4)}`).join('; ')}</p>}
-    {props.progress.weeks.length > 0 && !props.progress.active && <p><button type="button" className="primary" onClick={props.onReview}>Review fetched weeks</button></p>}
-    <button type="button" className="ghost small" onClick={props.onForget}>Forget trusted MediRota origins</button></section>;
+  return <section className={`card ${props.minimal ? 'fetch-tab-panel' : ''}`}>
+    <h1>{props.minimal ? 'Fetch your rota' : 'Fetch from MediRota'}</h1>
+    {props.minimal ? <>
+      <p>Choose a range of Monday weeks. By default, fetching starts this week and checks up to 60 weeks, stopping after two weeks in a row with no rota.</p>
+      {props.trustOrigin && <section className="notice fetch-trust-card" role="dialog" aria-labelledby="fetch-trust-title"><h2 id="fetch-trust-title">Read your rota from {props.trustOrigin}?</h2><p>Your rota stays in this browser.</p><div className="row"><button className="primary" type="button" onClick={props.onAllowTrust}>Allow</button><button type="button" onClick={props.onCancelTrust}>Cancel</button></div></section>}
+      <div className="fetch-range"><label className="field">Start week<input aria-label="Start week" type="date" value={props.start} onChange={e => props.setStart(snapToMonday(e.target.value))} /><small className="small muted">{formatWeekOf(props.start)}</small></label><label className="field">End week<input aria-label="End week" type="date" value={props.end} onChange={e => props.setEnd(snapToMonday(e.target.value))} /><small className="small muted">{formatWeekOf(props.end)}</small></label></div>
+      <p className="small muted">{weeks > 0 ? `${weeks} ${weeks === 1 ? 'week' : 'weeks'} in range` : 'Choose an end week after the start week.'}</p>
+      {props.progress.active ? <button type="button" onClick={props.onStop}>Stop</button> : <button type="button" className="primary" onClick={props.onFetch}>Fetch</button>}
+      {props.progress.active && <p role="status">Fetched {props.progress.weeks.length} of {props.progress.expected} weeks</p>}
+      {props.message && <div className="notice warn">{props.message}</div>}
+      {props.progress.weeks.length > 0 && <ul className="small">{props.progress.weeks.map(week => <li key={week.start}>{formatWeekOf(week.start)}{week.person ? ' · rota found' : week.noRota ? ' · no rota' : ' · could not check'}</li>)}</ul>}
+    </> : <>
+      <p className="muted">Fetch the By person weeks open to your account, then check them in the usual import steps.</p>
+      <div className="row"><FetchBookmarkLink href={props.bookmark}>Fetch from MediRota</FetchBookmarkLink><button type="button" onClick={() => void navigator.clipboard?.writeText(props.bookmark).then(() => alert('Bookmark code copied.'))}>Copy bookmark code</button><button type="button" onClick={props.onFile}>Choose HTML or JSON bundle</button></div>
+      <p className="small muted">Drag the link to your bookmarks bar. It reuses the Rota Planner tab when it is still open.</p><p className="small muted">Dragged this before 17 November 2026? Drag it again to get the newer version.</p><button type="button" className="ghost small" onClick={() => props.setMode(!props.mode)}>{props.mode ? 'Hide fetch form' : 'Show fetch form'}</button>
+      {props.origin && <p className="small"><a href={props.origin} target="_blank" rel="noreferrer">Open MediRota</a></p>}
+      {props.mode && <div className="row" style={{ marginTop: 12 }}><label>Start week <input type="date" value={props.start} onChange={e => props.setStart(snapToMonday(e.target.value))} /><small className="small muted">{formatWeekOf(props.start)}</small></label><label>End week <input type="date" value={props.end} onChange={e => props.setEnd(snapToMonday(e.target.value))} /><small className="small muted">{formatWeekOf(props.end)}</small></label><span>{weeks > 0 ? `${weeks} ${weeks === 1 ? 'week' : 'weeks'}` : 'Choose an end week'}</span>{props.progress.active ? <button type="button" onClick={props.onStop}>Stop</button> : <button type="button" className="primary" onClick={props.onFetch}>Fetch</button>}</div>}
+      {props.progress.active && <p role="status">Fetched {props.progress.weeks.length} of {props.progress.expected} weeks</p>}{props.message && <div className="notice warn">{props.message}</div>}
+      {props.progress.weeks.some(w => w.noRota || w.error) && <p className="small">{props.progress.weeks.filter(w => w.noRota || w.error).map(w => `No rota found for w/c ${formatDateLong(w.start)} ${w.start.slice(0, 4)}`).join('; ')}</p>}
+      {props.progress.weeks.length > 0 && !props.progress.active && <p><button type="button" className="primary" onClick={props.onReview}>Review fetched weeks</button></p>}
+      <button type="button" className="ghost small" onClick={props.onForget}>Forget trusted MediRota origins</button>
+    </>}
+  </section>;
 }
 
 function Stepper({ step, has, onStep }: { step: Step; has: Record<Step, boolean>; onStep: (s: Step) => void }) {
@@ -452,7 +537,7 @@ function ActivitiesStep({ plan, setPlan, files }: { plan: ImportPlan; setPlan: (
         {needsPlace(a.treat) && places.length > 0 && (
           <select value={a.placeId ?? 'new'} aria-label={`Place for ${a.name}`} onChange={e => setActivity(a.name, { placeId: e.target.value })}>
             <option value="new">New place</option>
-            {places.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            {places.map(r => <option key={r.id} value={r.id}>{placeName(r)}</option>)}
           </select>
         )}
       </span>
@@ -612,12 +697,12 @@ function ReviewStep({ plan, setPlan, skipped }: { plan: ImportPlan; setPlan: (p:
   );
 }
 
-function DoneCard({ done, go, again }: { done: Done; go: (p: Page) => void; again: () => void }) {
+function DoneCard({ done, go, again, onReturnToSetup }: { done: Done; go: (p: Page) => void; again: () => void; onReturnToSetup?: () => void }) {
   if ('lists' in done) return (
     <section className="card">
       <h2>Consultant lists imported</h2>
       <p>Set on {done.lists} days.</p>
-      <div className="row"><button className="primary" onClick={() => go('overview')}>Go to Overview</button><button className="ghost" onClick={again}>Import more</button></div>
+      <div className="row">{onReturnToSetup && <button className="primary" onClick={onReturnToSetup}>Return to setup</button>}<button className={onReturnToSetup ? 'ghost' : 'primary'} onClick={() => go('overview')}>Go to Overview</button><button className="ghost" onClick={again}>Import more</button></div>
     </section>
   );
   const r = done.result;
@@ -626,7 +711,7 @@ function DoneCard({ done, go, again }: { done: Done; go: (p: Page) => void; agai
       <h2>Imported</h2>
       <p>{done.dates}: {r.leave} days away and {r.booked} booked shifts{r.people ? `, ${r.people} new people` : ''}{r.places ? `, ${r.places} new places` : ''}{r.consultantDays ? `, consultant lists on ${r.consultantDays} days` : ''}.</p>
       {r.removedHeadingPlace && <p>Removed a place that was a MediRota heading, not an activity.</p>}
-      <div className="row"><button className="primary" onClick={() => go('overview')}>Go to Overview</button><button className="ghost" onClick={again}>Import more</button></div>
+      <div className="row">{onReturnToSetup && <button className="primary" onClick={onReturnToSetup}>Return to setup</button>}<button className={onReturnToSetup ? 'ghost' : 'primary'} onClick={() => go('overview')}>Go to Overview</button><button className="ghost" onClick={again}>Import more</button></div>
     </section>
   );
 }

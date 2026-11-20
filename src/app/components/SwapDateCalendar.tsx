@@ -57,11 +57,11 @@ export function keyboardCalendarDate(date: ISODate, key: string): ISODate | unde
   return delta ? addDays(date, delta) : undefined;
 }
 
-export function SwapDateCalendar({ snapshot, staffId, leaveDates, cantWorkDates, onLeaveDates, onCantWorkDates, selectionMode = 'multiple', selectedDate, onSelectedDateChange, forcedMode }: {
+export function SwapDateCalendar({ snapshot, staffId, leaveDates, cantWorkDates, onLeaveDates, onCantWorkDates, selectionMode = 'multiple', selectedDate, onSelectedDateChange, forcedMode, payBackOnOwnLeave = false }: {
   snapshot: RotaSnapshot; staffId: string; leaveDates: ISODate[]; cantWorkDates: ISODate[];
   onLeaveDates: (dates: ISODate[]) => void; onCantWorkDates: (dates: ISODate[]) => void;
   selectionMode?: 'multiple' | 'single'; selectedDate?: ISODate; onSelectedDateChange?: (date: ISODate) => void;
-  forcedMode?: Mode;
+  forcedMode?: Mode; payBackOnOwnLeave?: boolean;
 }) {
   const imported = Object.keys(snapshot.importedAt).sort();
   const today = localToday();
@@ -112,13 +112,14 @@ export function SwapDateCalendar({ snapshot, staffId, leaveDates, cantWorkDates,
           const importedDay = importedDates.has(date); const day = snapshot.days[staffId]?.[date];
           const leave = selectionMode === 'multiple' && leaveDates.includes(date), cant = selectionMode === 'multiple' && cantWorkDates.includes(date);
           const kind = shortRotaLabel(day?.status ?? 'blank'); const activity = day?.activity ?? '';
+          const canPayBack = payBackOnOwnLeave && activeMode === 'cantWork' && day?.status === 'leave' && !leave && !cant;
           const onCall = day?.status === 'longDay' || day?.status === 'night';
           const picked = selectionMode === 'single' ? selectedDate === date : leave;
-          return <button type="button" role="gridcell" data-swap-date={date} disabled={!importedDay} className={`${picked ? 'picked-leave' : ''} ${cant ? 'picked-cant' : ''} ${onCall ? `on-call ${day?.status}` : ''}`} key={date}
-            aria-label={`${formatDateLong(date)}${picked ? ', selected' : ''}${leave ? ', leave date' : ''}${cant ? ', cannot work in return' : ''}${kind ? `, ${kind}` : ''}${activity ? `, ${activity}` : ''}`}
+          return <button type="button" role="gridcell" data-swap-date={date} disabled={!importedDay} className={`${canPayBack ? 'swap-can-pay-back' : ''} ${picked ? 'picked-leave' : ''} ${cant ? 'picked-cant' : ''} ${onCall ? `on-call ${day?.status}` : ''}`} key={date}
+            aria-label={`${formatDateLong(date)}${picked ? ', selected' : ''}${leave ? ', leave date' : ''}${cant ? ', cannot work in return' : ''}${canPayBack ? ', can pay back' : ''}${kind ? `, ${kind}` : ''}${activity ? `, ${activity}` : ''}`}
             onClick={event => choose(date, event.shiftKey)} onKeyDown={event => selectionMode === 'multiple' ? key(event, date) : undefined} onPointerDown={event => { if (selectionMode === 'multiple') { dragging.current = true; anchor.current = calendarPointerAnchor(anchor.current, date, event.shiftKey); } }} onPointerEnter={event => { if (selectionMode === 'multiple') dragInto(event, date); }}>
             <span className="swap-day-number">{Number(date.slice(8))}</span><span className="swap-day-kind" data-short={rotaShortCode(day?.status ?? 'blank')}>{kind}</span>{activity && <span className="swap-day-activity">{activity}</span>}
-            <span className="swap-day-marks">{leave && <small>Leave</small>}{cant && <small>Can’t work</small>}</span>
+            <span className="swap-day-marks">{canPayBack && <small>Can pay back</small>}{leave && <small>Leave</small>}{cant && <small>Can’t work</small>}</span>
           </button>;
         })())}
       </div>

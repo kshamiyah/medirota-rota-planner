@@ -6,10 +6,10 @@ import { clearPolyfillStorage } from './polyfill-storage';
 import { emptyWorkspace, getWorkspace, replaceWorkspace, update, writeWorkspaceAsOtherTab, adoptWorkspaceFromStorage, WORKSPACE_STORAGE_KEY } from '../src/app/store';
 import { defaultSessionsSettings } from '../src/app/sessions';
 import { DEFAULT_SWAP_SETTINGS } from '../src/app/mediImport';
-import { commitWizardSessionsStep, suggestSessionKind, suggestSessionType, wizardSettingsDraft } from '../src/app/pages/SetupWizard';
+import { commitWizardSessionsStep, sharesAreEqual, suggestSessionKind, suggestSessionType, wizardSettingsDraft } from '../src/app/pages/SetupWizard';
 import { workingMinimumLabel, shortDays, workingCount } from '../src/app/overview';
 import { applyPresetToWorkspace, isSetupPreset, makePresetFromWorkspace } from '../src/app/presets';
-import { applyWizardDoctorChoice, setWizardDoctor, setWorkspaceRole } from '../src/app/setupWizard';
+import { applyWizardDoctorChoice, applyWizardRoleChoice, setWizardDoctor, setWorkspaceRole } from '../src/app/setupWizard';
 
 function sourceFiles(path: string): string[] {
   return readdirSync(path, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? sourceFiles(join(path, entry.name)) : /\.(ts|tsx)$/.test(entry.name) ? [join(path, entry.name)] : []);
@@ -101,19 +101,6 @@ function importedWithoutSessions(role: 'doctor' | 'coordinator') {
   else workspace.me = undefined;
   delete workspace.sessions;
   return workspace;
-}
-
-function expectSuggestedSessionsSaved(workspace: ReturnType<typeof madeUpWorkspace>) {
-  const draft = wizardSettingsDraft({ ...workspace, sessions: undefined });
-  expect(workspace.sessions?.types.map(type => type.name).sort()).toEqual(draft.types.map(type => type.name).sort());
-  expect(workspace.sessions?.types.some(type => type.name === 'Wards' && type.placeIds.includes('labour'))).toBe(true);
-  expect(workspace.sessions?.types.some(type => type.placeIds.includes('day'))).toBe(false);
-  expect(workspace.sessions?.groups.map(group => group.name).sort()).toEqual(['Doctors', 'Junior doctors', 'Senior doctors']);
-  for (const type of workspace.sessions!.types) {
-    for (const group of workspace.sessions!.groups) expect(workspace.sessions!.ratios[type.id][group.id]).toBe(1);
-  }
-  expect(workspace.swapFinder?.settings.minDoctors).toEqual([0, 0, 0, 0, 0, 0, 0]);
-  expect(workspace.swapFinder?.settings.minDoctorsBankHoliday).toBe(0);
 }
 
 beforeEach(() => { clearPolyfillStorage(); replaceWorkspace(emptyWorkspace()); });
@@ -237,32 +224,52 @@ describe('open-source role and presets', () => {
     }
   });
 
-  it('keeps role undefined on a no-edit rerun of a pre-role workspace', () => {
+  it('keeps role undefined on a no-edit rerun of a pre-role workspace through every step', () => {
     const workspace = madeUpWorkspace();
     delete workspace.role;
     expect(workspace.me).toBe('rowan');
-    expect(workspace.sessions?.types.length).toBeGreaterThan(0);
+    // Places in types, unequal shares, rules and minimum doctors so every step including share sub-steps is visited.
+    expect(workspace.sessions!.types.some(type => type.placeIds.length > 0)).toBe(true);
+    workspace.sessions!.ratios['type-theatre']!['comparison-senior'] = 2;
+    expect(sharesAreEqual(workspace.sessions!)).toBe(false);
+    workspace.profile.rules = [{ id: 'national-rest', name: '', type: 'minRest', hard: true, hours: 11 }];
+    workspace.swapFinder!.settings.minDoctors = [3, 3, 3, 3, 3, 2, 2];
+    workspace.swapFinder!.settings.minDoctorsBankHoliday = 2;
     const before = structuredClone(workspace);
     const draft = wizardSettingsDraft(workspace);
+    // Role step: doctor is pre-selected on screen; writing it is not, unless they change the answer.
+    applyWizardRoleChoice(workspace, 'doctor', 'rerun');
     applyWizardDoctorChoice(workspace, workspace.me!, 'rerun');
     commitWizardSessionsStep(workspace, 'types', draft);
     commitWizardSessionsStep(workspace, 'groups', draft);
-    commitWizardSessionsStep(workspace, 'ratios', draft);
+    // Share sub-steps for each day type (unequal shares → shareChoice "no"); no edits → ratios unchanged.
+    const dayTypes = draft.types.filter(type => type.kind === 'day');
+    expect(dayTypes.length).toBeGreaterThan(1);
+    for (let index = 0; index < dayTypes.length; index++) {
+      expect(draft.ratios[dayTypes[index]!.id]).toEqual(before.sessions!.ratios[dayTypes[index]!.id]);
+    }
+    commitWizardSessionsStep(workspace, 'shares', draft);
+    // Minimums and rules: drafts match saved values, so a no-edit Next leaves them alone.
+    expect(workspace.swapFinder!.settings.minDoctors).toEqual(before.swapFinder!.settings.minDoctors);
+    expect(workspace.profile.rules).toEqual(before.profile.rules);
     expect(workspace.role).toBeUndefined();
     expect(workspace).toEqual(before);
   });
 
-  it('saves on-screen suggestions when Next has no edits and nothing was saved yet (fetch-tab style)', () => {
+  it('does not sort places or save session types in a first-time draft without edits', () => {
     for (const role of ['doctor', 'coordinator'] as const) {
       const workspace = importedWithoutSessions(role);
       const draft = wizardSettingsDraft(workspace);
       expect(workspace.sessions).toBeUndefined();
       if (role === 'doctor') applyWizardDoctorChoice(workspace, 'rowan', 'firstRun');
       else setWorkspaceRole(workspace, 'coordinator');
+      expect(draft.types).toEqual([]);
+      expect(draft.groups.map(group => group.grades)).toEqual([['Junior doctors'], ['Doctors'], ['Senior doctors']]);
       commitWizardSessionsStep(workspace, 'types', draft);
       commitWizardSessionsStep(workspace, 'groups', draft);
       commitWizardSessionsStep(workspace, 'ratios', draft);
-      expectSuggestedSessionsSaved(workspace);
+      expect(workspace.sessions?.types).toEqual([]);
+      expect(workspace.sessions?.ratios).toEqual({});
       if (role === 'doctor') {
         expect(workspace.me).toBe('rowan');
         expect(workspace.role).toBe('doctor');
@@ -273,7 +280,7 @@ describe('open-source role and presets', () => {
     }
   });
 
-  it('saves the same suggestions from the original-tab first-run path', () => {
+  it('makes the same unsorted first-time draft in the original and fetch-tab paths', () => {
     const original = importedWithoutSessions('doctor');
     const fetchTab = importedWithoutSessions('doctor');
     const originalDraft = wizardSettingsDraft(original);
@@ -284,12 +291,11 @@ describe('open-source role and presets', () => {
       commitWizardSessionsStep(original, step, originalDraft);
       commitWizardSessionsStep(fetchTab, step, fetchDraft);
     }
-    expect(original.sessions?.types.map(type => ({ name: type.name, placeIds: [...type.placeIds].sort() }))).toEqual(
-      fetchTab.sessions?.types.map(type => ({ name: type.name, placeIds: [...type.placeIds].sort() })),
-    );
-    expect(original.sessions?.groups.map(group => ({ name: group.name, grades: group.grades }))).toEqual(
-      fetchTab.sessions?.groups.map(group => ({ name: group.name, grades: group.grades })),
-    );
+    expect(originalDraft.types).toEqual([]);
+    expect(fetchDraft.types).toEqual([]);
+    expect(originalDraft.groups.map(group => group.grades)).toEqual(fetchDraft.groups.map(group => group.grades));
+    expect(original.sessions?.types).toEqual([]);
+    expect(fetchTab.sessions?.types).toEqual([]);
     expect(original.me).toBe('rowan');
     expect(fetchTab.me).toBe('rowan');
     expect(original.role).toBe('doctor');

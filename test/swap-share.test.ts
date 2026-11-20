@@ -84,11 +84,11 @@ describe('swap result sharing', () => {
     expect(training.sections[0].rows[0].notes.some(note => note.includes('Dr Hart'))).toBe(false);
     expect(shareText(training)).toContain('Misses training on Wed 8 Apr');
     expect(shareText(training)).not.toContain('Dr Hart: Misses training');
-    expect(nwd.sections[0].rows[0].sameDay).toBe('NWD swap, you take their MAU CT and request it as annual leave');
+    expect(nwd.sections[0].rows[0].sameDay).toBe('Same-day swap: they work your long day, you take their day job as leave (MAU CT)');
     expect(nwd.sections[0].rows[0].notes.some(note => note.includes('Dr Moss'))).toBe(false);
-    expect(shareText(nwd)).toContain('1. *Dr Moss*: NWD swap, you take their MAU CT and request it as annual leave');
+    expect(shareText(nwd)).toContain('1. *Dr Moss*: Same-day swap: they work your long day, you take their day job as leave (MAU CT)');
     expect(shareText(nwd)).not.toContain('Dr Moss works your long day');
-    expect(mixed.sections[0].rows[0].notes).toContain('Tue 7 Apr: NWD swap, you take their MAU CT and request it as annual leave');
+    expect(mixed.sections[0].rows[0].notes).toContain('Tue 7 Apr: Same-day swap: they work your long day, you take their day job as leave (MAU CT)');
     expect(mixed.sections[0].rows[0].notes.some(note => note.includes('Dr Vale'))).toBe(false);
     expect(two.sections[0].rows[0].notes).toEqual([
       'Dr Ellis: Misses training on Wed 8 Apr',

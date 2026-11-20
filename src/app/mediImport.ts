@@ -126,6 +126,18 @@ function guessTreat(name: string, sessions: Set<Session>): Treat {
   return 'dayjob';
 }
 
+/**
+ * Free-text notes, new-starter placeholders (e.g. "⚑ CT 03 (New)") and
+ * MediRota [Removed]/ellipsis residue that planImport leaves out as Not counted.
+ */
+export function activityLooksLikeNote(name: string): boolean {
+  return /\bto cover\b|[(),*]/i.test(name)
+    || name.split(/\s+/).length > 5
+    || name.endsWith('[Removed]')
+    || name.includes('…')
+    || name.includes('&hellip;');
+}
+
 export const DEFAULT_SWAP_SETTINGS: SwapSettings = {
   weekendDayActivities: [],
   hoursTolerance: 1,
@@ -241,7 +253,12 @@ function editDistance(a: string, b: string): number {
   return d[a.length][b.length];
 }
 
-export function planImport(ws: Workspace, personWeeks: PersonWeek[], activityWeeks: ActivityWeek[]): ImportPlan {
+export type PlanImportOptions = {
+  /** First-time setup summary only: do not pre-tick extra-only doctors as locums (they appear under quick look instead). */
+  firstTimeSummary?: boolean;
+};
+
+export function planImport(ws: Workspace, personWeeks: PersonWeek[], activityWeeks: ActivityWeek[], options?: PlanImportOptions): ImportPlan {
   const p = ws.profile;
   const weeks = [...personWeeks].sort((a, b) => a.start.localeCompare(b.start));
   const dates = [...new Set(weeks.flatMap(w => w.people.flatMap(r => Object.keys(r.days))).concat(weeks.flatMap(w => dateRange(w.start, addDays(w.start, 6)))))].sort();
@@ -278,7 +295,8 @@ export function planImport(ws: Workspace, personWeeks: PersonWeek[], activityWee
       });
       if (close) possible = { staffId: close.id, name: close.name };
     }
-    const locum = byName?.locum ?? (row.role.toLowerCase() === 'locum' || (days > 0 && extra === days));
+    // BASE: Locum role, or every day worked was an extra. First-time summary skips the extra-only guess.
+    const locum = byName?.locum ?? (row.role.toLowerCase() === 'locum' || (!options?.firstTimeSummary && days > 0 && extra === days));
     return {
       mediRotaId: row.id, name, grade, staffId: byName?.id, possible,
       // Everyone listed is in the department, even with nothing allocated yet; a locum with no shifts isn't worth adding.
@@ -318,8 +336,8 @@ export function planImport(ws: Workspace, personWeeks: PersonWeek[], activityWee
     const days = countOf.get(name) ?? 0;
     const isPlace = treat === 'night' || treat === 'long' || treat === 'dayjob';
     const placeId = isPlace ? guessPlace(p.roles, name) ?? 'new' : undefined;
-    // A free-text note ("Dr Quinn to cover Theatre 2") or a rare one-off is left out unless it matches a place.
-    const note = /\bto cover\b|[(),*]/i.test(name) || name.split(/\s+/).length > 5;
+    // A free-text note ("Dr Quinn to cover Theatre 2"), placeholder or rare one-off is left out unless it matches a place.
+    const note = activityLooksLikeNote(name);
     const finalTreat: Treat = isPlace && placeId === 'new' && (note || days < weeks.length / 2) ? 'ignore' : treat;
     return { name, treat: finalTreat, ...(finalTreat === 'ignore' ? {} : { placeId }), days, remembered: false };
   }).sort((a, b) => ORDER.indexOf(a.treat) - ORDER.indexOf(b.treat) || b.days - a.days);
@@ -448,12 +466,16 @@ export function applyImport(w: Workspace, plan: ImportPlan): ImportResult {
   const staffOf = new Map<string, Staff>();
   for (const pp of plan.people) {
     if (pp.action === 'skip') continue;
-    let s = pp.action === 'match' && pp.staffId ? p.staff.find(x => x.id === pp.staffId) : undefined;
+    let s = (pp.staffId ? p.staff.find(x => x.id === pp.staffId) : undefined)
+      ?? p.staff.find(x => x.mediRotaId === pp.mediRotaId);
     if (!s) {
       const g = groupFor(pp.grade);
       s = { id: newId('dr'), name: pp.name, groupIds: g ? [g] : [], fte: 1 };
       p.staff.push(s);
       result.people++;
+    } else if (pp.grade) {
+      const g = groupFor(pp.grade);
+      if (g && !s.groupIds.includes(g)) s.groupIds = [g, ...s.groupIds.filter(id => id !== g)];
     }
     s.mediRotaId = pp.mediRotaId;
     // A changeover inside the imported weeks: starting later only matters for someone new.

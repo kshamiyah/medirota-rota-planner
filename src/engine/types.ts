@@ -25,7 +25,10 @@ export interface ShiftType {
 
 export interface Role {
   id: Id;
+  /** Canonical MediRota/import name. Keep this stable when the visible place name is edited. */
   name: string;
+  /** Optional name shown in the app; matching continues to use `name`. */
+  displayName?: string;
   /** Free-text grouping used by rules and reports, e.g. "Theatre", "Wards". */
   category?: string;
   /**

@@ -8,6 +8,7 @@ import { assignmentKey, update, useWorkspace } from '../store';
 import { categoryClass, formatDateLong, formatDay } from './ui';
 import { awayCode, categoryOf, dayClass, legendGroups, placeCode, shiftCode, staffSections } from './codes';
 import { validate } from '../../engine/validate';
+import { placeName } from '../placeName';
 
 type Tab = 'doctor' | 'place' | 'fairness' | 'training' | 'gaps';
 
@@ -46,6 +47,7 @@ export function RotaView({ problem, report }: { problem: RotaProblem; report: Va
     w.rota.assignments = fn(w.rota.assignments);
     w.rota.edited = true;
   });
+  const roleName = (id?: string) => (id ? placeName(p.roles.find(r => r.id === id)) : undefined) ?? 'Booked commitment';
   const toggleLock = (a: Assignment) => update(w => {
     if (!w.rota) return;
     const k = assignmentKey(a);
@@ -56,7 +58,7 @@ export function RotaView({ problem, report }: { problem: RotaProblem; report: Va
 
   const exportCsv = () => {
     const header = ['Doctor', ...dates];
-    const rows = p.staff.map(s => [s.name, ...dates.map(d => (byStaffDate.get(`${s.id}|${d}`) ?? []).map(a => `${shift(a.shiftTypeId)?.name} ${role(a.roleId)?.name ?? 'booked'}`).join(' / '))]);
+    const rows = p.staff.map(s => [s.name, ...dates.map(d => (byStaffDate.get(`${s.id}|${d}`) ?? []).map(a => `${shift(a.shiftTypeId)?.name} ${roleName(a.roleId)}`).join(' / '))]);
     const csv = [header, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -115,7 +117,7 @@ export function RotaView({ problem, report }: { problem: RotaProblem; report: Va
                                 const r = role(a.roleId);
                                 const lead = r?.leadIds?.length ? ` with ${r.leadIds.map(l => p.leads?.find(x => x.id === l)?.name).filter(Boolean).join(' & ')}` : '';
                                 return (
-                                  <span key={assignmentKey(a)} title={`${shift(a.shiftTypeId)?.name} ${shift(a.shiftTypeId)?.start}–${shift(a.shiftTypeId)?.end}: ${r?.name ?? 'Booked commitment'}${lead}${a.fixed ? ' (booked)' : ''}${locked.has(assignmentKey(a)) ? ' (locked)' : ''}`}
+                                  <span key={assignmentKey(a)} title={`${shift(a.shiftTypeId)?.name} ${shift(a.shiftTypeId)?.start}–${shift(a.shiftTypeId)?.end}: ${r ? placeName(r) : 'Booked commitment'}${lead}${a.fixed ? ' (booked)' : ''}${locked.has(assignmentKey(a)) ? ' (locked)' : ''}`}
                                     className={`tag ${categoryClass(categories, categoryOf(r, p.roles))} ${a.fixed ? 'is-booked' : ''} ${locked.has(assignmentKey(a)) ? 'locked' : ''} ${problemsAt.has(`${s.id}|${d}`) ? 'problem' : ''}`}>
                                     {r ? placeCode(r, p.roles) : shiftCode(shift(a.shiftTypeId)?.name)}
                                   </span>
@@ -192,7 +194,7 @@ function SidePanel({ staffId, date, problem, assignments, locked, onClose, onRem
   const all = ws.rota?.assignments ?? [];
   const away = problem.unavailability.filter(u => u.staffId === staffId && u.date === date);
   const counts = (roleId: string, shiftTypeId: string) => all.filter(a => a.roleId === roleId && a.shiftTypeId === shiftTypeId && a.date === date).length;
-  const roleName = (id?: string) => (id ? p.roles.find(r => r.id === id)?.name : undefined) ?? 'Booked commitment';
+  const roleName = (id?: string) => (id ? placeName(p.roles.find(r => r.id === id)) : undefined) ?? 'Booked commitment';
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -277,7 +279,7 @@ function SidePanel({ staffId, date, problem, assignments, locked, onClose, onRem
                 return (
                   <button key={r.id} className={`opt ghost ${current ? 'current' : ''}`} disabled={current}
                     onClick={() => onAdd({ staffId, date, shiftTypeId: st.id, roleId: r.id })}>
-                    {r.name} <span className={`small ${n < d.min ? 'gap-cell' : 'muted'}`}>{n}/{d.min === d.max ? d.min : `${d.min}–${d.max}`}</span>
+                    {placeName(r)} <span className={`small ${n < d.min ? 'gap-cell' : 'muted'}`}>{n}/{d.min === d.max ? d.min : `${d.min}–${d.max}`}</span>
                   </button>
                 );
               })}
@@ -308,7 +310,7 @@ function PlaceGrid({ dates, report }: { dates: ISODate[]; report: ValidationRepo
           <tbody>
             {rows.map(({ r, s }) => (
               <tr key={`${r.id}|${s.id}`}>
-                <td className="sticky-col"><span className={`tag ${categoryClass(categories, r.category)}`}>{placeCode(r, p.roles)}</span> <b>{r.name}</b>{rows.filter(x => x.r.id === r.id).length > 1 && <span className="muted small"> · {s.name}</span>}</td>
+                <td className="sticky-col"><span className={`tag ${categoryClass(categories, r.category)}`}>{placeCode(r, p.roles)}</span> <b>{placeName(r)}</b>{rows.filter(x => x.r.id === r.id).length > 1 && <span className="muted small"> · {s.name}</span>}</td>
                 {dates.map(d => {
                   const ids = family(r.id);
                   const here = (ws.rota?.assignments ?? []).filter(a => a.roleId && ids.includes(a.roleId) && a.shiftTypeId === s.id && a.date === d);
@@ -386,7 +388,7 @@ function TrainingTable({ report }: { report: ValidationReport }) {
             const misses = report.soft.filter(s => s.ruleId === r.id);
             return (
               <tr key={r.id}>
-                <td>{r.name}</td>
+                <td>{placeName(r)}</td>
                 <td>{misses.length === 0 ? <span className="pill ok">All met</span> : (
                   <ul style={{ margin: 0, paddingLeft: 18 }}>{misses.map((m, i) => <li key={i}>{p.staff.find(s => s.id === m.staffId)?.name}: {m.detail}</li>)}</ul>
                 )}</td>
@@ -412,7 +414,7 @@ function GapList({ problem, gaps }: { problem: RotaProblem; gaps: CoverageGap[] 
         <tbody>
           {gaps.map(g => (
             <GapRow key={key(g)} g={g} open={open === key(g)} toggle={() => setOpen(open === key(g) ? null : key(g))} problem={problem}
-              roleName={p.roles.find(r => r.id === g.roleId)?.name ?? g.roleId} shiftName={p.shiftTypes.find(s => s.id === g.shiftTypeId)?.name ?? g.shiftTypeId} />
+              roleName={placeName(p.roles.find(r => r.id === g.roleId))} shiftName={p.shiftTypes.find(s => s.id === g.shiftTypeId)?.name ?? g.shiftTypeId} />
           ))}
         </tbody>
       </table>

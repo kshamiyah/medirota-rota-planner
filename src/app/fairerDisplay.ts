@@ -1,12 +1,30 @@
 /** Presentation and browser exports only. Nothing here changes solver inputs or assignments. */
 import { addDays, dateRange, weekday } from '../engine/calendar';
-import type { Assignment, ISODate } from '../engine/types';
+import type { Assignment, ISODate, Role } from '../engine/types';
 import type { FairerModel } from './fairer';
 import type { SessionsSettings } from './sessions';
 import { sessionComparisonFor } from './sessions';
 import { sessionFor } from './overview';
 import { placeCode, shiftCode } from './components/codes';
+import { placeName } from './placeName';
 import type { Workspace } from './store';
+
+/** Visible place label for a role id via the model's place mapping. Keys stay on role ids. */
+export function fairerRoleLabel(roleId: string | undefined, model: FairerModel, roles: Map<string, Role>): string {
+  if (!roleId) return '';
+  const role = roles.get(model.placeForRole[roleId] ?? roleId) ?? roles.get(roleId);
+  return role ? placeName(role) : 'Day place';
+}
+
+/** Map a MediRota activity string to the place display name when it matches a known place (or its consultant list). */
+export function fairerActivityLabel(activity: string | undefined, roles: Iterable<Role>): string {
+  if (!activity) return '';
+  const list = [...roles];
+  const match = list.find(role => role.name.toLocaleLowerCase('en-GB') === activity.toLocaleLowerCase('en-GB'));
+  if (!match) return activity;
+  const place = match.parentId ? list.find(role => role.id === match.parentId) ?? match : match;
+  return placeName(place);
+}
 
 export const fairerList = (names: string[]) => names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 
@@ -82,10 +100,12 @@ export function makeFairerDisplay(ws: Workspace, settings: SessionsSettings, mod
     const key = fairerCellKey(person.id, date), day = ws.swapFinder?.snapshot.days[person.id]?.[date];
     const base = before.get(key), assigned = after.get(key);
     const changed = !!base && !!assigned && !unchangedFromBaseline(base, assigned, model);
-    const oldPlace = base && roles.get(model.placeForRole[base.roleId ?? ''] ?? base.roleId ?? '')?.name;
-    const activity = (changed && assigned && roles.get(model.placeForRole[assigned.roleId ?? ''] ?? assigned.roleId ?? '')?.name) || day?.activity || (assigned && roles.get(model.placeForRole[assigned.roleId ?? ''] ?? assigned.roleId ?? '')?.name) || ({ leave: 'Leave', training: 'Training', zero: 'Zero day', night: 'Night', longDay: 'Long day', partShift: 'Part shift', notAvailable: 'Not available', available: 'Available', blank: '', dayJob: '', '': '' }[day?.status ?? ''] ?? '');
-    const type = sessionFor(activity, ws.profile, settings);
-    const code = type?.code || (day?.status === 'leave' ? 'Leave' : day?.status === 'training' ? 'Train' : day?.status === 'zero' ? 'Zero' : day?.status === 'night' || day?.status === 'longDay' ? shiftCode(activity) : activity ? placeCode({ id: 'display-only', name: activity }, []) : '·');
+    const statusLabel = ({ leave: 'Leave', training: 'Training', zero: 'Zero day', night: 'Night', longDay: 'Long day', partShift: 'Part shift', notAvailable: 'Not available', available: 'Available', blank: '', dayJob: '', '': '' } as Record<string, string>)[day?.status ?? ''] ?? '';
+    // Matching and codes stay on the MediRota/canonical name; visible cell text uses display names.
+    const canonical = (changed && assigned && roles.get(model.placeForRole[assigned.roleId ?? ''] ?? assigned.roleId ?? '')?.name) || day?.activity || (assigned && roles.get(model.placeForRole[assigned.roleId ?? ''] ?? assigned.roleId ?? '')?.name) || statusLabel;
+    const activity = (changed && assigned && fairerRoleLabel(assigned.roleId, model, roles)) || fairerActivityLabel(day?.activity, roles.values()) || (assigned && fairerRoleLabel(assigned.roleId, model, roles)) || statusLabel;
+    const type = sessionFor(canonical, ws.profile, settings);
+    const code = type?.code || (day?.status === 'leave' ? 'Leave' : day?.status === 'training' ? 'Train' : day?.status === 'zero' ? 'Zero' : day?.status === 'night' || day?.status === 'longDay' ? shiftCode(canonical) : canonical ? placeCode({ id: 'display-only', name: canonical }, []) : '·');
     const assignment = assigned ?? base;
     const place = assignment && model.placeForRole[assignment.roleId ?? ''];
     let consultants: string[] = [];
@@ -94,7 +114,8 @@ export function makeFairerDisplay(ws: Workspace, settings: SessionsSettings, mod
       if (!consultants.length) consultants = roles.get(assignment.roleId ?? '')?.leadIds?.flatMap(id => ws.profile.leads?.find(lead => lead.id === id)?.name ?? []) ?? [];
       if (!consultants.length && base && model.placeForRole[base.roleId ?? ''] === place) consultants = model.consultantPlan.baselineByStaffDate[key] ?? [];
     }
-    cells.set(key, { activity, previous: changed ? day?.activity || oldPlace || '' : '', code, changed, extra: !!day?.extra, colour: type?.colour, consultants });
+    const previous = changed ? fairerActivityLabel(day?.activity, roles.values()) || (base && fairerRoleLabel(base.roleId, model, roles)) || '' : '';
+    cells.set(key, { activity, previous, code, changed, extra: !!day?.extra, colour: type?.colour, consultants });
   }
   return { dates: [...model.dates], doctors, cells };
 }

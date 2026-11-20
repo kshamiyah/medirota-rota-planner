@@ -1,7 +1,8 @@
+import { optionNotes, ownLeaveText, SAME_DAY_EXPLANATION } from './swapResultsView';
 import type { ISODate } from '../engine/types';
 import type { DayJobSwapGroup } from './dayJobSwaps';
 import type { SwapPlan, SwapUnit } from '../engine/swaps';
-import { SAME_DAY_LABEL, completePlansFirst, partialCoverageTitle, swapPlanNotes, visibleSwapPlans, type SwapPlanFilter, type SwapResultHides } from './swapsView';
+import { completePlansFirst, partialCoverageTitle, visibleSwapPlans, type SwapPlanFilter, type SwapResultHides } from './swapsView';
 import { formatDateLong } from './components/ui';
 
 export interface ShareRow {
@@ -163,11 +164,11 @@ function optionDates(plan: SwapPlan, requesterId: string, requestedYear: string,
   const dates = sortedDates(units.flatMap(unit => unit.dates));
   const work = units.length ? datesForDisplay(plan, requesterId, requestedYear) : '';
   // NWD alternatives keep their swap wording. Missed-training stays a plan note only (once), not on Other dates.
-  const special = plan.chains.filter(chain => chain.sameDay).map(chain => `${formatShareDate(chain.links[0].gives.dates[0], requestedYear)}: NWD swap, you take their ${chain.links[1].gives.activity} and request it as annual leave (${chain.sameDay!.doctors} of ${chain.sameDay!.minimum} working after leave; ${SAME_DAY_LABEL})`);
+  const special = plan.chains.filter(chain => chain.sameDay).map(chain => `${formatShareDate(chain.links[0].gives.dates[0], requestedYear)}: ${SAME_DAY_EXPLANATION} (${chain.links[1].gives.activity}${chain.sameDay!.minimum > 0 ? `; ${chain.sameDay!.doctors} doctors at work (minimum ${chain.sameDay!.minimum})${chain.sameDay!.doctors < chain.sameDay!.minimum ? ', below minimum' : ''}` : ''})`);
   const reasons = planCheckReasons(plan, requesterId);
   const needsCheck = reasons.length > 0;
   return {
-    dates: `${partialCoverageTitle(plan, requesterId) ? `${partialCoverageTitle(plan, requesterId)}: ` : ''}${[...(work && work !== 'Dates to agree' ? [work] : []), ...special].join('; ') || special[0] || work || 'Dates to agree'}`,
+    dates: `${partialCoverageTitle(plan, requesterId) ? `${partialCoverageTitle(plan, requesterId)}: ` : ''}${[...(work && work !== 'Dates to agree' ? [work] : []), ...special, ...(ownLeaveText(plan) ? [ownLeaveText(plan)!] : [])].join('; ') || special[0] || work || 'Dates to agree'}`,
     sortDate: sortedDates([...dates, ...plan.chains.filter(chain => chain.sameDay).flatMap(chain => chain.links[0].gives.dates)])[0] ?? '9999-12-31',
     needsCheck,
     ...(needsCheck ? { checkLabel: shortCheckLabel(reasons) } : {}),
@@ -274,7 +275,7 @@ export function makeShareContent(input: ShareInput): ShareContent {
     const checkNeeded = mainOption?.needsCheck ?? result.label === '⚠ Check';
     const sameDayChains = best.chains.filter(chain => chain.sameDay);
     const sameDay = best.chains.length === 1 && sameDayChains.length === 1
-      ? `NWD swap, you take their ${sameDayChains[0].links[1].gives.activity} and request it as annual leave` : undefined;
+      ? `${SAME_DAY_EXPLANATION} (${sameDayChains[0].links[1].gives.activity})` : undefined;
     const notes = [
       ...(best.people > 1 && partialCoverageTitle(best, input.requesterId) ? [partialCoverageTitle(best, input.requesterId)!] : []),
       ...(!sameDay ? sameDayChains.map(chain => {
@@ -283,9 +284,9 @@ export function makeShareContent(input: ShareInput): ShareContent {
         // One-person rows already name the doctor in the ask line; keep the name on 2+ person rows.
         return best.people > 1
           ? `${date}: ${input.nameFor(chain.links[1].staffId)} works your long day; you take their ${activity} and request it as annual leave`
-          : `${date}: NWD swap, you take their ${activity} and request it as annual leave`;
+          : `${date}: ${SAME_DAY_EXPLANATION} (${activity})`;
       }) : []),
-      ...swapPlanNotes(best, input.nameFor, date => formatShareDate(date, requestedYear)),
+      ...optionNotes(best, input.requesterId, input.nameFor, date => formatShareDate(date, requestedYear)).filter(note => note !== SAME_DAY_EXPLANATION),
     ];
     const alternativeOptions = allAlternatives ? distinct.options.slice(1) : distinct.options.slice(1, 4);
     const row: ShareRow = {

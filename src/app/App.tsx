@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getWorkspace, hasSavedWorkspace, useWorkspace } from './store';
 import { Shifts } from './pages/Shifts';
 import { Places } from './pages/Places';
@@ -16,7 +16,9 @@ import { Sessions } from './pages/Sessions';
 import type { SettingsSection } from './pages/Settings';
 import { FairerRota } from './pages/FairerRota';
 import { SetupWizard } from './pages/SetupWizard';
-import { fetchFromMediRotaWizardStep, shouldOpenFetchTabSetup, shouldShowSetupWizard, type SetupWizardStep } from './setupWizard';
+import { shouldOpenFetchTabSetup, shouldShowSetupWizard } from './setupWizard';
+import { clearSetupReview } from './setupReview';
+import { clearSetupStep, savedSetupStep, SETUP_PROGRESS_KEY } from './pages/SetupWizard';
 
 export const SETUP_DONE_KEY = 'rota-planner.setup-wizard-done.v1';
 export function dismissedSetupWizard(): boolean { try { return localStorage.getItem(SETUP_DONE_KEY) === 'yes'; } catch { return false; } }
@@ -26,37 +28,33 @@ const NAV: { section: string; items: { id: Page; label: string }[] }[] = [
   { section: 'Workspace', items: [{ id: 'import', label: 'Update from MediRota' }, { id: 'settings', label: 'Settings' }] },
 ];
 
-function hasImportedRota(workspace = getWorkspace()): boolean {
-  return Object.keys(workspace.swapFinder?.snapshot.importedAt ?? {}).length > 0;
-}
-
 export function App() {
   const ws = useWorkspace();
   const fetchFromMediRota = new URLSearchParams(location.search).get('fetchFromMediRota') === '1';
-  const [fetchTabNeedsSetup] = useState(() => fetchFromMediRota && shouldOpenFetchTabSetup(getWorkspace(), dismissedSetupWizard()));
-  const [wizardMode, setWizardMode] = useState<'firstRun' | 'rerun' | null>(() => !fetchFromMediRota && !dismissedSetupWizard() && shouldShowSetupWizard(getWorkspace(), hasSavedWorkspace()) ? 'firstRun' : null);
-  const [wizardInitialStep, setWizardInitialStep] = useState<SetupWizardStep>('role');
+  const hasProgress = (() => { try { return !!localStorage.getItem(SETUP_PROGRESS_KEY); } catch { return false; } })();
+  const [fetchTabNeedsSetup] = useState(() => fetchFromMediRota && shouldOpenFetchTabSetup(getWorkspace(), dismissedSetupWizard(), hasProgress));
+  const [wizardMode, setWizardMode] = useState<'firstRun' | 'rerun' | null>(() => {
+    if (fetchFromMediRota || dismissedSetupWizard()) return null;
+    if (hasProgress) return 'firstRun';
+    return shouldShowSetupWizard(getWorkspace(), hasSavedWorkspace()) ? 'firstRun' : null;
+  });
+  const [wizardInitialStep, setWizardInitialStep] = useState(savedSetupStep);
   const [wizardEpoch, setWizardEpoch] = useState(0);
   const [page, setPage] = useState<Page>(() => fetchFromMediRota ? 'import' : wizardMode ? 'setup' : 'overview');
+  // Banner is for leaving mid-setup in this session; a reload reopens the wizard from the progress key.
+  const [resumeAvailable, setResumeAvailable] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('you');
   const [settingsAnchor, setSettingsAnchor] = useState('');
   const openSessionSettings = (anchor: string) => { setSettingsSection('sessions'); setSettingsAnchor(anchor); setPage('settings'); };
   useEffect(() => { if (page !== 'settings') setSettingsAnchor(''); }, [page]);
-  const fetchWizardOpened = useRef(false);
-  useEffect(() => {
-    if (!fetchFromMediRota || !fetchTabNeedsSetup || dismissedSetupWizard() || fetchWizardOpened.current || !hasImportedRota(ws)) return;
-    fetchWizardOpened.current = true;
-    // Setup is not dismissed here: treat this as first-time setup so Next saves on-screen suggestions.
-    setWizardMode(current => current ?? 'firstRun');
-    setWizardInitialStep(fetchFromMediRotaWizardStep(ws.role));
-    setWizardEpoch(value => value + 1);
-    setPage('setup');
-  }, [fetchFromMediRota, fetchTabNeedsSetup, ws]);
   const finishSetup = () => {
     try { localStorage.setItem(SETUP_DONE_KEY, 'yes'); } catch { /* in-memory setup remains available */ }
+    clearSetupStep(); clearSetupReview(); setResumeAvailable(false);
     setWizardMode(null); setPage('overview');
   };
-  const runSetupAgain = () => { setWizardMode('rerun'); setWizardInitialStep('role'); setWizardEpoch(value => value + 1); setPage('setup'); };
+  const leaveSetup = () => { setWizardMode(null); setPage('overview'); setResumeAvailable(!dismissedSetupWizard()); };
+  const resumeSetup = () => { setWizardMode('firstRun'); setWizardInitialStep(savedSetupStep()); setWizardEpoch(value => value + 1); setPage('setup'); setResumeAvailable(false); };
+  const runSetupAgain = () => { setWizardMode('rerun'); setWizardInitialStep('welcome'); setWizardEpoch(value => value + 1); setPage('setup'); };
   // The sidebar can shrink to a strip of icons; remembered in this browser.
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('rota-planner.sidebar') === 'collapsed'; } catch { return false; } });
   const toggleSidebar = () => setCollapsed(c => {
@@ -72,7 +70,7 @@ export function App() {
     shifts: ws.profile.shiftTypes.length, places: ws.profile.roles.filter(r => !r.parentId).length, rules: ws.profile.rules.length, people: ws.profile.staff.length,
   };
   return (
-    <div className={`app ${collapsed ? 'collapsed' : ''}`}>
+    <div className={`app ${collapsed ? 'collapsed' : ''} ${wizardMode && page === 'setup' ? 'setup-fullscreen' : ''} ${fetchFromMediRota ? 'fetch-tab-app' : ''}`}>
       <nav className="sidebar" aria-label="Main">
         <div className="brand">
           <span className="brand-name">Rota Planner</span>
@@ -95,18 +93,19 @@ export function App() {
         </div>
       </nav>
       <main className="main">
-        {ws.role !== 'coordinator' && page !== 'swaps' && page !== 'swapSettings' && page !== 'setup' && page !== 'settings' && <ViewingAs />}
+        {resumeAvailable && !fetchFromMediRota && !wizardMode && !dismissedSetupWizard() && <div className="notice setup-resume-banner"><span>Finish setting up</span><button type="button" onClick={resumeSetup}>Resume setup</button></div>}
+        {ws.role !== 'coordinator' && !fetchFromMediRota && page !== 'swaps' && page !== 'swapSettings' && page !== 'setup' && page !== 'settings' && <ViewingAs />}
         {page === 'overview' && <Overview go={setPage} openPresets={() => { setSettingsSection('files'); setPage('settings'); }} />}
         {page === 'sessions' && <Sessions go={setPage} openComparisonGroups={() => openSessionSettings('comparison-groups')} />}
         {page === 'fairer' && <FairerRota go={setPage} openSessions={anchor => openSessionSettings(anchor)} />}
         {page === 'settings' && <SettingsPage go={setPage} initialSection={settingsSection} initialAnchor={settingsAnchor} onSectionChange={section => { setSettingsSection(section); setSettingsAnchor(''); }} onRunSetup={runSetupAgain} returnToSetup={wizardMode !== null ? () => setPage('setup') : undefined} />}
-        {page === 'import' && <Import go={setPage} showFetchDone={!fetchTabNeedsSetup} />}
+        {page === 'import' && <Import go={next => setPage(next)} showFetchDone={!fetchTabNeedsSetup} firstTimeFetch={fetchTabNeedsSetup} setupReview={!!wizardMode && page === 'import'} onReturnToSetup={() => setPage('setup')} />}
         {page === 'shifts' && <Shifts />}
         {page === 'places' && <Places />}
         {page === 'staffing' && <Staffing />}
         {page === 'rules' && <Rules />}
         {page === 'people' && <People />}
-        {wizardMode && <div hidden={page !== 'setup'}><SetupWizard key={`${wizardMode}-${wizardEpoch}`} mode={wizardMode} initialStep={wizardInitialStep} go={nextPage => { if (nextPage === 'settings') setSettingsSection('people'); setPage(nextPage); }} onFinish={finishSetup} /></div>}
+        {wizardMode && <div hidden={page !== 'setup'}><SetupWizard key={`${wizardMode}-${wizardEpoch}`} mode={wizardMode} initialStep={wizardInitialStep} onFinish={finishSetup} onLeave={leaveSetup} onReviewDetails={() => setPage('import')} onNavigate={nextPage => setPage(nextPage)} /></div>}
         {page === 'swaps' && <FindSwaps go={next => { if (next === 'rules') { setSettingsSection('rules'); setSettingsAnchor(''); setPage('settings'); } else setPage(next); }} />}
         {page === 'swapSettings' && <SwapSettingsPage go={setPage} />}
       </main>

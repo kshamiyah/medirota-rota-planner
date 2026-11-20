@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fetchWeekDates, formatWeekOf, isFetchBundle, makeFetchBookmark, snapToMonday, validWeekDates } from '../src/app/fetchBookmark';
+import { fetchWeekDates, fetchedWeekIsEmpty, formatWeekOf, isFetchBundle, makeFetchBookmark, snapToMonday, stopAfterTwoEmptyWeeks, validWeekDates } from '../src/app/fetchBookmark';
 import { isPersonWeek, parsePersonWeek } from '../src/app/medirota';
 import { personPage } from './fixtures/medirota-fetch/person-page';
 
@@ -32,6 +32,29 @@ describe('MediRota fetch bookmark', () => {
     expect(snapToMonday('2026-11-11')).toBe('2026-11-09');
     expect(formatWeekOf(snapToMonday('2026-11-11'))).toBe('Week of Mon 9 Nov');
     expect(fetchWeekDates('2026-11-11', '2026-11-25')).toEqual(['2026-11-09', '2026-11-16', '2026-11-23']);
+  });
+  it('uses a 60-week default cap and stops only after two parsed empty weeks when more are queued', () => {
+    const end = new Date('2026-11-16T00:00:00Z'); end.setUTCDate(end.getUTCDate() + 59 * 7);
+    expect(fetchWeekDates('2026-11-16', end.toISOString().slice(0, 10))).toHaveLength(60);
+    expect(stopAfterTwoEmptyWeeks([{ start: '2026-11-16', noRota: true }, { start: '2026-11-23', noRota: true }], 4)).toBe(true);
+    expect(stopAfterTwoEmptyWeeks([{ start: '2026-11-16', noRota: true }, { start: '2026-11-23', noRota: true }], 2)).toBe(false);
+    expect(stopAfterTwoEmptyWeeks([{ start: '2026-11-16', noRota: true }, { start: '2026-11-23', error: 'network' }], 4)).toBe(false);
+    expect(stopAfterTwoEmptyWeeks([{ start: '2026-11-16', noRota: true }, { start: '2026-11-23', person: { start: '2026-11-23', people: [] } }], 4)).toBe(false);
+    expect(fetchedWeekIsEmpty(200, false)).toBe(true);
+    expect(fetchedWeekIsEmpty(404, false)).toBe(true);
+    expect(fetchedWeekIsEmpty(500, false)).toBe(false);
+    expect(fetchedWeekIsEmpty(200, true)).toBe(false);
+    // Two HTTP 404s in a row after published weeks count as empty and stop the default scan.
+    expect(stopAfterTwoEmptyWeeks([
+      { start: '2026-11-16', person: { start: '2026-11-16', people: [{ id: '1', rowName: 'Rowan', label: 'Dr Rowan', role: 'CT', days: {} }] } },
+      { start: '2026-11-23', noRota: fetchedWeekIsEmpty(404, false) },
+      { start: '2026-11-30', noRota: fetchedWeekIsEmpty(404, false) },
+    ], 6)).toBe(true);
+    // A 500 does not count as empty, so the scan continues.
+    expect(stopAfterTwoEmptyWeeks([
+      { start: '2026-11-16', noRota: true },
+      { start: '2026-11-23', noRota: fetchedWeekIsEmpty(500, false) },
+    ], 4)).toBe(false);
   });
   it('parses the same person data as saved fake HTML and rejects login and no-rota pages', () => {
     const html = personPage('2026-11-02');

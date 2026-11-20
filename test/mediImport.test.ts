@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyImport, planImport, previewImport } from '../src/app/mediImport';
 import { isPersonWeek, parsePersonWeek, type PersonRow, type PersonWeek } from '../src/app/medirota';
 import { emptyWorkspace } from '../src/app/store';
+import { quickLookItems } from '../src/app/setupReview';
 
 // A cut-down "By person" week with MediRota's markup: one person, a night on Monday.
 const slot = (date: string, shift: number, acts: string[]) =>
@@ -135,6 +136,17 @@ describe('Planning an import', () => {
     const day = ws.swapFinder!.snapshot.days[staff.id]['2026-11-02'];
     expect(day).toMatchObject({ status: 'dayJob', activity: 'MAU CT', extra: true });
     expect(ws.swapFinder!.snapshot.extrasTagged).toBe(true);
+  });
+
+  it('first-time summary does not guess locum from extra-only shifts and surfaces those doctors for a quick look', () => {
+    const plan = planImport(emptyWorkspace(), [week([row('99', 'Quinn Hart (ST1)', weekOf({ 0: { am: ['Maple Ward [Extra]'] } }))])], [], { firstTimeSummary: true });
+    expect(plan.people[0]).toMatchObject({ mediRotaId: '99', locum: false, action: 'add' });
+    expect(quickLookItems(plan).extraOnly).toEqual(['99']);
+  });
+
+  it('later imports pre-tick an extra-only doctor as locum (BASE)', () => {
+    const plan = planImport(emptyWorkspace(), [week([row('99', 'Quinn Hart (ST1)', weekOf({ 0: { am: ['Maple Ward [Extra]'] } }))])], []);
+    expect(plan.people[0]).toMatchObject({ mediRotaId: '99', locum: true, action: 'add' });
   });
 
   it('imports a cell with a MediRota slot heading then Training Day CT as training, not a day job', () => {

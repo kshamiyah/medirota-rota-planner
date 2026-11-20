@@ -9,6 +9,7 @@ export function buildSwapRequest(workspace: Workspace, inputs: SwapFormInputs, t
   const data = workspace.swapFinder!;
   const requestInputs = structuredClone(inputs);
   const request: SwapRequest = {
+    ...(requestInputs.payBackOnOwnLeave ? { payBackOnOwnLeave: true } : {}),
     staffId: requestInputs.staffId, leaveDates: requestInputs.leaveDates, leaveType: requestInputs.leaveType,
     cantWorkDates: requestInputs.cantWorkDates, excludeStaffIds: requestInputs.excludedStaffIds,
     includeNormalDays: requestInputs.includeNormalDays, today, planLimits,

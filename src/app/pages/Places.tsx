@@ -3,6 +3,7 @@ import { newId, update, useWorkspace } from '../store';
 import { isUsed, previewRemoveLead, previewRemovePlace, removeLead, removePlace, type RemovalSummary } from '../references';
 import { RemoveWarning } from '../components/RemoveWarning';
 import { Empty, PageHead, categoryClass } from '../components/ui';
+import { placeName } from '../placeName';
 
 export function Places() {
   const ws = useWorkspace();
@@ -60,12 +61,20 @@ export function Places() {
                 const lists = roles.filter(x => x.parentId === r.id);
                 return [
                   <tr key={r.id}>
-                    <td><input value={r.name} aria-label="Place name" onChange={e => update(w => {
-                      const old = w.profile.roles[i].name;
-                      w.profile.roles[i].name = e.target.value;
-                      // Keep consultant list names in step with their place.
-                      for (const l of w.profile.roles) if (l.parentId === r.id && l.name.startsWith(old + ' – ')) l.name = e.target.value + l.name.slice(old.length);
-                    })} style={{ width: '100%', minWidth: 140, maxWidth: 260 }} /></td>
+                    <td><input value={placeName(r)} aria-label="Place name" onChange={e => update(w => {
+                      const role = w.profile.roles[i];
+                      const oldVisible = placeName(role);
+                      const next = e.target.value;
+                      role.displayName = next.trim() && next.trim() !== role.name ? next.trim() : undefined;
+                      const newVisible = placeName(role);
+                      if (oldVisible !== newVisible) {
+                        for (const list of w.profile.roles) {
+                          if (list.parentId === role.id && list.name.startsWith(`${oldVisible} – `)) {
+                            list.name = `${newVisible}${list.name.slice(oldVisible.length)}`;
+                          }
+                        }
+                      }
+                    })} style={{ width: '100%', minWidth: 140, maxWidth: 260 }} />{r.displayName && <small className="small muted">MediRota: {r.name}</small>}</td>
                     <td>
                       <div className="row">
                         <input list="place-groups" value={r.category ?? ''} placeholder="e.g. Theatre" aria-label="Group"
@@ -74,14 +83,14 @@ export function Places() {
                       </div>
                     </td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {leads.length > 0 && <AddList placeId={r.id} placeName={r.name} />}
+                      {leads.length > 0 && <AddList placeId={r.id} placeName={placeName(r)} />}
                       <button className="ghost danger" onClick={() => remove(r.id, r.name)}>Remove</button>
                     </td>
                   </tr>,
                   ...lists.map(l => (
                     <tr key={l.id}>
                       <td style={{ paddingLeft: 28 }}><span className="muted">↳</span> {l.name}</td>
-                      <td className="small muted">{(l.leadIds ?? []).map(leadName).join(' & ')}'s list · counts as {r.name}</td>
+                          <td className="small muted">{(l.leadIds ?? []).map(leadName).join(' & ')}'s list · counts as {placeName(r)}</td>
                       <td style={{ textAlign: 'right' }}><button className="ghost danger" onClick={() => remove(l.id, l.name)}>Remove</button></td>
                     </tr>
                   )),

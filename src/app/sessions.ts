@@ -18,6 +18,8 @@ export interface SessionComparisonGroup {
   id: string;
   name: string;
   grades: string[];
+  /** Explicit placements for doctors without a MediRota grade. */
+  staffIds?: string[];
   subGroups?: SessionSubGroup[];
 }
 export interface SessionsSettings {
@@ -57,6 +59,13 @@ export const SESSION_COLOURS = [
   { number: 7, label: 'Purple', value: '#ece3f2' },
   { number: 8, label: 'Grey', value: '#eaeeed' },
   { number: 9, label: 'Indigo', value: '#e1e5f5' },
+  { number: 10, label: 'Coral', value: '#f6e0d9' },
+  { number: 11, label: 'Mint', value: '#dcefe9' },
+  { number: 12, label: 'Lavender', value: '#ebe4fa' },
+  { number: 13, label: 'Lemon', value: '#f2efcf' },
+  { number: 14, label: 'Sky', value: '#dceaf1' },
+  { number: 15, label: 'Mauve', value: '#f0e1ee' },
+  { number: 16, label: 'Olive', value: '#e8edda' },
 ] as const;
 
 function gradeKey(grade: string): string { return grade.trim().toLocaleLowerCase('en-GB'); }
@@ -99,11 +108,11 @@ export function gradeForStaff(staff: Staff, profile: Profile): string | undefine
 
 function comparisonFor(staff: Staff, profile: Profile, settings: SessionsSettings, placements: Record<string, string>): { groupId?: string; comparisonId?: string } {
   const grade = gradeForStaff(staff, profile);
-  if (!grade) return {};
-  const group = settings.groups.find(candidate => candidate.grades.some(item => gradeKey(item) === gradeKey(grade)));
+  const group = settings.groups.find(candidate => candidate.staffIds?.includes(staff.id) || (!!grade && candidate.grades.some(item => gradeKey(item) === gradeKey(grade))));
   if (!group) return {};
+  if (group.staffIds?.includes(staff.id)) return { groupId: group.id, comparisonId: group.id };
   if (!group.subGroups?.length) return { groupId: group.id, comparisonId: group.id };
-  const byGrade = group.subGroups.find(subgroup => subgroup.grades.some(item => gradeKey(item) === gradeKey(grade)));
+  const byGrade = grade ? group.subGroups.find(subgroup => subgroup.grades.some(item => gradeKey(item) === gradeKey(grade))) : undefined;
   if (byGrade) return { groupId: group.id, comparisonId: byGrade.id };
   const placed = placements[staff.id];
   return placed && group.subGroups.some(subgroup => subgroup.id === placed) ? { groupId: group.id, comparisonId: placed } : { groupId: group.id };
@@ -180,7 +189,7 @@ export function analyseSessions(
   });
 
   for (const type of settings.types) {
-    const counted = people.filter(person => !person.staff.locum && !!person.groupId && !!person.comparisonId && !(person.staff.groupIds.length === 0));
+    const counted = people.filter(person => !person.staff.locum && !!person.groupId && !!person.comparisonId);
     const total = counted.reduce((sum, person) => sum + (person.counts[type.id] ?? 0), 0);
     const denominator = counted.reduce((sum, person) => sum + (settings.ratios[type.id]?.[person.groupId!] ?? 1) * person.availability, 0);
     if (!denominator) continue;
@@ -222,9 +231,9 @@ export function gradeSessionRates(analysis: SessionAnalysis, settings: SessionsS
       const total = members.reduce((sum, person) => sum + (person.counts[type.id] ?? 0), 0);
       totals[type.id] = total;
       actual[type.id] = availability > 0 ? total / availability * 28 : 0;
-      const weightedTotal = analysis.people.filter(person => !person.staff.locum && person.groupId && person.comparisonId && !(person.staff.groupIds.length === 0))
+      const weightedTotal = analysis.people.filter(person => !person.staff.locum && person.groupId && person.comparisonId)
         .reduce((sum, person) => sum + (person.counts[type.id] ?? 0), 0);
-      const denominator = analysis.people.filter(person => !person.staff.locum && person.groupId && person.comparisonId && !(person.staff.groupIds.length === 0))
+      const denominator = analysis.people.filter(person => !person.staff.locum && person.groupId && person.comparisonId)
         .reduce((sum, person) => sum + (settings.ratios[type.id]?.[person.groupId!] ?? 1) * person.availability, 0);
       const ratio = settings.ratios[type.id]?.[group.parentId] ?? 1;
       intended[type.id] = denominator > 0 && availability > 0 ? weightedTotal * ratio * availability / denominator / availability * 28 : 0;

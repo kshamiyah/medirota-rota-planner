@@ -71,7 +71,7 @@ export interface Workspace {
   /** Swap finder data is separate from the planner's rota, bookings and leave. */
   swapFinder?: SwapFinderData;
   /** What each MediRota activity became last time, so imports remember the choices. */
-  medirotaFetch?: { trustedOrigins: string[]; lastEndWeek?: ISODate };
+  medirotaFetch?: { trustedOrigins: string[]; lastEndWeek?: ISODate; origin?: string };
   /** Local setup defaults retained by name so later imports can apply them. */
   presetPeople?: {
     people: { name: string; excludeFromSwaps?: boolean; regularDaysOff?: number[]; fte?: number; locum?: boolean; regularLocum?: boolean; sessionSubGroup?: string; consultants?: string[] }[];

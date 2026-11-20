@@ -6,8 +6,8 @@
   "src/engine/explain.ts": "249288b52affb7bf00377781890c183c6769fc766542d2572a4ebbd964f2e84f",
   "src/engine/semantics.ts": "9c04367792fabc9a21d8ab75714c98fb28c7beb3e56d428285f84823f00e4a1a",
   "src/engine/solve.ts": "baa7d4a2403dd82aeea8a1c2574ab76536a9cd6b11dcf7674b29bb4148f80b1d",
-  "src/engine/swaps.ts": "52d54cfb89c455f6ea2314706a352dc5be42fbefa071f1f115e3d3639a1fe59f",
-  "src/engine/types.ts": "d484b9de8f28b1e5dc07d5d3c114f5c1425e14ddb13e6fc4f458f9534b900789",
+  "src/engine/swaps.ts": "57b11afb7d315f5c13e87b752b58d9a06f18aadaade39bdd5b42bff9e3e2cac7",
+  "src/engine/types.ts": "37066f7ba3283a04f56eb4d96e051bbb3b6e2f26260010a5c4d33a311353e6cb",
   "src/engine/validate.ts": "a3d783b0209dade961ec8123479b40f8eee43bbaeaa65d3c5d84c3588a3e0887",
   "getSummary": "06c2defb69f72ab675544de33acf8155f28b928987239bb25ee5d1aa21df0830",
   "solverRequest": "fa0ffe490388f58f71a6c21ce0f6a7d8bf2de760deb145324dd8bd1ebeb3fa29"

@@ -136,9 +136,9 @@ describe('Stage 7 independent engine acceptance', () => {
     const { ws, result } = run(kind);
     const text = shareText(makeShareContent({ plans: result.plans, filter: 'noAlerts', requesterId: 'rowan', requesterName: 'Dr Rowan', nameFor: id => ws.profile.staff.find(person => person.id === id)!.name, covered: result.clashes, existingShortages: [], limit: 'all' }));
     if (kind === 'sameAt') {
-      expect(text).toContain('1. *Dr Ellis*: NWD swap, you take their MAU CT and request it as annual leave');
-      expect(text).toContain('7 of 7 working after leave');
-      expect(text).toContain('Not like for like: they work a long day instead of their day job');
+      expect(text).toContain('1. *Dr Ellis*: Same-day swap: they work your long day, you take their day job as leave (MAU CT)');
+      expect(text).toContain('7 doctors at work (minimum 7)');
+      expect(text).toContain('Different shift lengths: 9.5 h for your 12.5 h');
     } else {
       expect(text).toContain('Misses training on Mon 7 Dec');
       expect(text).not.toContain('Dr Ellis: Misses training');
@@ -159,10 +159,10 @@ describe('Stage 7 independent engine acceptance', () => {
     expect(plans.every(plan => planMatchesHides(plan, {}))).toBe(true);
     const shareInput = { plans, filter: 'all' as const, requesterId: 'rowan', requesterName: 'Dr Rowan', nameFor: (id: string) => ws.profile.staff.find(person => person.id === id)!.name, covered: result.clashes, existingShortages: [] as { date: string; doctors: number; minimum: number }[], limit: 'all' as const };
     const hiddenSameDay = shareText(makeShareContent({ ...shareInput, hides: { hideSameDay: true } }));
-    expect(hiddenSameDay).not.toContain('NWD swap');
+    expect(hiddenSameDay).not.toContain('Same-day swap');
     expect(hiddenSameDay).toContain('Misses training');
     const hiddenTraining = shareText(makeShareContent({ ...shareInput, hides: { hideMissedTraining: true } }));
-    expect(hiddenTraining).toContain('NWD swap');
+    expect(hiddenTraining).toContain('Same-day swap');
     expect(hiddenTraining).not.toContain('Misses training');
     const both = makeShareContent({ ...shareInput, hides: { hideSameDay: true, hideMissedTraining: true }, limit: 5 });
     expect(both.sections.flatMap(section => section.rows)).toHaveLength(1);

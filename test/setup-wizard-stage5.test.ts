@@ -24,19 +24,20 @@ describe('open-source setup wizard', () => {
     for (const role of ['doctor', 'coordinator'] as const) {
       const workspace = emptyWorkspace();
       setWorkspaceRole(workspace, role);
-      expect(shouldOpenFetchTabSetup(workspace, false), role).toBe(true);
+      expect(shouldOpenFetchTabSetup(workspace, false, true), role).toBe(true);
       expect(fetchFromMediRotaWizardStep(workspace.role)).toBe(role === 'coordinator' ? 'types' : 'doctor');
-      expect(shouldOpenFetchTabSetup(workspace, true), `${role} done`).toBe(false);
+      expect(shouldOpenFetchTabSetup(workspace, true, true), `${role} done`).toBe(false);
     }
     // Real doctor Next on the role step may write localStorage without setting role yet.
     const roleStepSaved = emptyWorkspace();
-    expect(shouldOpenFetchTabSetup(roleStepSaved, false)).toBe(true);
+    expect(shouldOpenFetchTabSetup(roleStepSaved, false, true)).toBe(true);
     expect(fetchFromMediRotaWizardStep(roleStepSaved.role)).toBe('doctor');
   });
   it('continues fetch-tab setup from a completely empty browser', () => {
     const fresh = emptyWorkspace();
-    expect(shouldOpenFetchTabSetup(fresh, false)).toBe(true);
-    expect(shouldOpenFetchTabSetup(fresh, true)).toBe(false);
+    expect(shouldOpenFetchTabSetup(fresh, false, true)).toBe(true);
+    expect(shouldOpenFetchTabSetup(fresh, true, true)).toBe(false);
+    expect(shouldOpenFetchTabSetup(fresh, false, false)).toBe(false);
   });
   it('keeps an already set-up saved workspace on the fetch screen without a completion key', () => {
     const workspace = emptyWorkspace();
@@ -62,18 +63,20 @@ describe('open-source setup wizard', () => {
     expect(settings.groups).toEqual([]);
     expect(settings.ratios).toEqual({});
   });
-  it('walks the doctor steps and applies skip and back', () => {
-    expect(nextSetupWizardStep('role', 'next')).toBe('rota');
-    expect(nextSetupWizardStep('rota', 'skip')).toBe('doctor');
-    expect(nextSetupWizardStep('doctor', 'back')).toBe('rota');
+  it('walks the new setup steps and applies skip and back', () => {
+    expect(nextSetupWizardStep('welcome', 'next')).toBe('role');
+    expect(nextSetupWizardStep('role', 'next')).toBe('bookmark');
+    expect(nextSetupWizardStep('fetch', 'skip')).toBe('rules');
+    expect(nextSetupWizardStep('doctor', 'back')).toBe('summary');
     expect(nextSetupWizardStep('types', 'next')).toBe('groups');
-    expect(nextSetupWizardStep('minimums', 'next')).toBe('finish');
-    expect(nextSetupWizardStep('finish', 'back')).toBe('minimums');
+    expect(nextSetupWizardStep('minimums', 'next')).toBe('rules');
+    expect(nextSetupWizardStep('rules', 'next')).toBe('finish');
+    expect(nextSetupWizardStep('finish', 'back')).toBe('rules');
   });
   it('requires a role and a doctor only on the doctor step', () => {
     expect(canAdvanceSetupWizard('role', false, false, undefined)).toBe(false);
     expect(canAdvanceSetupWizard('role', false, false, 'doctor')).toBe(true);
-    expect(canAdvanceSetupWizard('rota', false, false, 'coordinator')).toBe(true);
+    expect(canAdvanceSetupWizard('fetch', false, false, 'coordinator')).toBe(true);
     expect(canAdvanceSetupWizard('doctor', true, false, 'doctor')).toBe(false);
     expect(canAdvanceSetupWizard('doctor', true, true, 'doctor')).toBe(true);
   });

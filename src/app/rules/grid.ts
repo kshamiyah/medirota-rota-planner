@@ -130,6 +130,7 @@ const everyone = (r: Rule) => !(r.who?.groupIds?.length) && !(r.who?.staffIds?.l
 
 export function limitDefs(p: Profile): LimitDef[] {
   const nights = p.shiftTypes.filter(s => s.end <= s.start).map(s => s.id).sort();
+  // Settings → Rules: long day = 10 hours or more (BASE). The national-limits button uses longer than 10 elsewhere.
   const longDays = p.shiftTypes.filter(s => s.end > s.start && shiftHours(s) >= 10).map(s => s.id).sort();
   const sameShifts = (r: { work?: { shiftTypeIds?: string[]; roleIds?: string[]; categories?: string[] } }, ids: string[]) =>
     !(r.work?.roleIds?.length) && !(r.work?.categories?.length) && JSON.stringify([...(r.work?.shiftTypeIds ?? [])].sort()) === JSON.stringify(ids);
@@ -157,10 +158,24 @@ export function limitDefs(p: Profile): LimitDef[] {
       make: v => ({ id: 'contract-7days', name: '', type: 'maxConsecutive', hard: true, work: {}, maxDays: v[0] }), apply: (r, v) => { if (r.type === 'maxConsecutive') r.maxDays = v[0]; },
     },
     {
-      id: 'weekends', label: 'Weekends', parts: ['At most', 'in every', 'weekends'],
-      matches: r => r.type === 'weekendFrequency' && everyone(r), values: r => (r.type === 'weekendFrequency' ? [r.maxWeekends, r.inWeekends] : [1, 2]),
+      id: 'postdays', label: 'Rest after 7 days in a row', parts: ['After', 'days in a row, at least', 'hours off'],
+      matches: r => r.type === 'restAfterRun' && everyone(r) && sameShifts(r, []), values: r => r.type === 'restAfterRun' ? [r.runDays, r.hours] : [7, 48],
+      make: v => ({ id: 'contract-postdays', name: '', type: 'restAfterRun', hard: true, work: {}, runDays: v[0] ?? 7, hours: v[1] ?? 48 }),
+      apply: (r, v) => { if (r.type === 'restAfterRun') { r.runDays = v[0] ?? 7; r.hours = v[1] ?? 48; } },
+      offByDefault: true,
+    },
+    {
+      id: 'weekends', label: 'Weekend limit', parts: ['No more than', 'in every', 'weekends'],
+      matches: r => r.type === 'weekendFrequency' && r.hard && everyone(r), values: r => (r.type === 'weekendFrequency' ? [r.maxWeekends, r.inWeekends] : [1, 2]),
       make: v => ({ id: 'contract-weekends', name: '', type: 'weekendFrequency', hard: true, maxWeekends: v[0], inWeekends: v[1] }),
       apply: (r, v) => { if (r.type === 'weekendFrequency') { r.maxWeekends = v[0]; r.inWeekends = v[1]; } },
+    },
+    {
+      id: 'weekendAim', label: 'Weekend aim', parts: ['Aim for no more than', 'in every', 'weekends'],
+      matches: r => r.type === 'weekendFrequency' && !r.hard && everyone(r), values: r => (r.type === 'weekendFrequency' ? [r.maxWeekends, r.inWeekends] : [1, 3]),
+      make: v => ({ id: 'contract-weekends-aim', name: '', type: 'weekendFrequency', hard: false, maxWeekends: v[0], inWeekends: v[1] }),
+      apply: (r, v) => { if (r.type === 'weekendFrequency') { r.maxWeekends = v[0]; r.inWeekends = v[1]; } },
+      offByDefault: true,
     },
   ];
   if (nights.length) {

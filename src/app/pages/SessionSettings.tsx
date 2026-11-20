@@ -3,13 +3,15 @@ import { useWorkspace, update } from '../store';
 import { defaultSessionsSettings, gradeForStaff, analyseSessions, sessionDateRange, type SessionComparisonGroup, type SessionsSettings } from '../sessions';
 import { markPresetPersonOverride } from '../presets';
 import { SessionTypesEditor } from '../components/SessionTypesEditor';
+import { placeName } from '../placeName';
+import { bookedShiftWarnings } from '../bookedShiftWarnings';
 
 function gradeLabel(personGrade?: string): string { return personGrade?.trim() || 'No grade'; }
 function gradeKey(grade: string): string { return grade.trim().toLocaleLowerCase('en-GB'); }
 function slug(value: string): string { return value.toLocaleLowerCase('en-GB').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
 
 export function SessionRatioTable({ settings, onChange }: { settings: SessionsSettings; onChange: (typeId: string, groupId: string, value: number) => void }) {
-  return <div className="table-wrap"><table className="session-ratio-table"><thead><tr><th>Session type</th>{settings.groups.map(group => <th key={group.id}>{group.name}</th>)}</tr></thead><tbody>{settings.types.map(type => <tr key={type.id}><th scope="row">{type.name}</th>{settings.groups.map(group => <td key={group.id}><input id={`ratio-${type.id}-${group.id}`} aria-label={`${type.name}, ${group.name}, parts`} type="number" min="0" step="0.25" value={settings.ratios[type.id]?.[group.id] ?? 1} onChange={event => onChange(type.id, group.id, Math.max(0, Number(event.target.value)))} /></td>)}</tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table className="session-ratio-table"><thead><tr><th>Session type</th>{settings.groups.map(group => <th key={group.id}>{group.name}</th>)}</tr></thead><tbody>{settings.types.map(type => <tr key={type.id}><th scope="row">{type.name}</th>{settings.groups.map(group => <td key={group.id}><input id={`share-${type.id}-${group.id}`} aria-label={`${type.name}, ${group.name}, share`} type="number" min="0" step="0.25" value={settings.ratios[type.id]?.[group.id] ?? 1} onChange={event => onChange(type.id, group.id, Math.max(0, Number(event.target.value)))} /></td>)}</tr>)}</tbody></table></div>;
 }
 
 export function SessionSettingsPanel() {
@@ -80,7 +82,7 @@ export function SessionSettingsPanel() {
 
     <section className="session-settings-block">
       <div className="session-settings-title"><h3>Session types</h3><p className="small muted">A consultant list follows its parent place.</p></div>
-      <SessionTypesEditor settings={settings} places={rootPlaces.map(place => ({ id: place.id, name: place.name }))} onChange={next => save(value => { value.types = next.types; value.ratios = next.ratios; })} />
+      <SessionTypesEditor settings={settings} places={rootPlaces.map(place => ({ id: place.id, name: placeName(place), originalName: place.displayName ? place.name : undefined }))} bookedWarnings={bookedShiftWarnings(ws.profile, ws.swapFinder?.snapshot)} onRenamePlace={(id, name) => update(workspace => { const place = workspace.profile.roles.find(item => item.id === id); if (place) place.displayName = name; })} onChange={next => save(value => { value.types = next.types; value.ratios = next.ratios; })} />
       <h4>Not counted yet</h4>{analysis?.unmapped.length ? <ul className="session-unmapped">{analysis.unmapped.map(item => <li key={item.activity}><span>{item.activity}</span><span>{item.count} {item.count === 1 ? 'booking' : 'bookings'}</span></li>)}</ul> : <p className="small muted">No unmapped activities in the imported range.</p>}
       {analysis?.ignored.length ? <p className="session-ignored small muted">Not counted: {analysis.ignored.map(item => `${item.activity} (${item.count})`).join(', ')}.</p> : null}
     </section>
@@ -105,7 +107,7 @@ export function SessionSettingsPanel() {
     </section>
 
     <section className="session-settings-block" id="ratios">
-      <div className="session-settings-title"><h3>Ratios</h3><p className="small muted">Parts set how each group shares its session-type target. Every new group starts at 1.</p></div>
+      <div className="session-settings-title"><h3>Shares</h3><p className="small muted">Shares set how each group divides its session-type target. Every new group starts at 1.</p></div>
       <SessionRatioTable settings={settings} onChange={(typeId, groupId, ratio) => save(value => { value.ratios[typeId] ??= {}; value.ratios[typeId][groupId] = ratio; })} />
     </section>
   </div>;

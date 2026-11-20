@@ -65,7 +65,7 @@ describe('working-time limits', () => {
   it('finds existing limits and offers nights rules when there are night shifts', () => {
     const p = profile();
     const defs = limitDefs(p);
-    expect(defs.map(d => d.id)).toEqual(['rest', 'hours7', 'avg', 'days', 'weekends', 'nights', 'postnights', 'nightblocks', 'longdays', 'postlongdays']);
+    expect(defs.map(d => d.id)).toEqual(['rest', 'hours7', 'avg', 'days', 'postdays', 'weekends', 'weekendAim', 'nights', 'postnights', 'nightblocks', 'longdays', 'postlongdays']);
     const nights = defs.find(d => d.id === 'nights')!;
     const rule = nights.make([3]);
     expect(nights.matches(rule)).toBe(true);

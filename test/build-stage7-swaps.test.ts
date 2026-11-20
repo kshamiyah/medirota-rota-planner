@@ -159,7 +159,7 @@ describe('Stage 7 NWD swaps', () => {
     expect(planMatchesFilter(plan, 'ask1')).toBe(true);
     const text = shareText(sharing([plan]));
     expect(text).toContain('You work: Mon 14 Dec (Long cover)');
-    expect(text).toContain('Mon 7 Dec: NWD swap, you take their MAU CT and request it as annual leave');
+    expect(text).toContain('Mon 7 Dec: Same-day swap: they work your long day, you take their day job as leave (MAU CT)');
     expect(text).not.toContain('Dr Ellis works your long day');
   });
 });
@@ -238,17 +238,17 @@ describe('Stage 7 sharing', () => {
     const plan = search(f).plans.find(plan => plan.chains[0].links[1].staffId === ellis)!;
     const content = sharing([plan]);
     const text = shareText(content);
-    expect(text).toContain('1. *Dr Ellis*: NWD swap, you take their MAU CT and request it as annual leave');
-    expect(text).toContain('Not like for like: they work a long day instead of their day job');
-    expect(text).toContain('3 of 3 working after leave');
+    expect(text).toContain('1. *Dr Ellis*: Same-day swap: they work your long day, you take their day job as leave (MAU CT)');
+    expect(text).toContain('Different shift lengths: 9.5 h for your 12.5 h');
+    expect(text).toContain('3 doctors at work (minimum 3)');
     expect(text).not.toContain('⚠');
     const ordinaryFixture = fixture();
     off(ordinaryFixture.snapshot, ellis, date);
     work(ordinaryFixture.snapshot, ellis, returned, 'longDay', long); off(ordinaryFixture.snapshot, rowan, returned);
     const ordinary = search(ordinaryFixture).plans.find(plan => plan.chains[0].links[1].staffId === ellis)!;
     const all = sharing([ordinary, plan]);
-    expect(shareText(all)).toContain('Other dates:\n• Mon 7 Dec: NWD swap, you take their MAU CT and request it as annual leave (3 of 3 working after leave; Not like for like: they work a long day instead of their day job)');
-    await assertImage(content, ['NWD swap, you take their MAU CT and request it as annual leave', '3 of 3 working after leave']);
+    expect(shareText(all)).toContain('Other dates:\n• Mon 7 Dec: Same-day swap: they work your long day, you take their day job as leave (MAU CT; 3 doctors at work (minimum 3))');
+    await assertImage(content, ['Same-day swap: they work your long day, you take their day job as leave (MAU CT)', '3 doctors at work (minimum 3)']);
   });
 
   it('keeps long alert reasons and NWD notes apart in the image', async () => {
@@ -256,7 +256,7 @@ describe('Stage 7 sharing', () => {
     const plan = search(f).plans[0];
     plan.alerts = [{ staffId: ellis, date, message: 'Minimum rest between shifts needs checking before this swap can be agreed' }];
     const content = makeShareContent({ plans: [plan], filter: 'all', requesterId: rowan, requesterName: rowan, nameFor: id => id, covered: [{ dates: [date], activity: long, kind: 'longDay' }], existingShortages: [], limit: 'all' });
-    await assertImage(content, ['3 of 3 working after leave']);
+    await assertImage(content, ['3 doctors at work (minimum 3)']);
   });
 
   it('includes the training note in the image', async () => {

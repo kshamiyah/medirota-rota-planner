@@ -3,6 +3,7 @@ import type { Demand, Weekday } from '../../engine/types';
 import { newId, update, useWorkspace } from '../store';
 import { ALL_WEEKDAYS, Empty, PageHead, WEEKDAY_NAMES, formatDateLong } from '../components/ui';
 import { MustIncludeCell } from '../components/MustInclude';
+import { placeName } from '../placeName';
 
 type Cell = { min: number; max: number };
 
@@ -39,7 +40,7 @@ export function Staffing() {
   const { roles, shiftTypes, demands } = ws.profile;
   const [addRole, setAddRole] = useState('');
   const [addShift, setAddShift] = useState('');
-  const roleName = (id: string) => roles.find(r => r.id === id)?.name ?? id;
+  const roleName = (id: string) => placeName(roles.find(r => r.id === id)) ?? id;
   const shiftName = (id: string) => shiftTypes.find(s => s.id === id)?.name ?? id;
 
   const rows = [...new Map(demands.filter(d => !(d.days.dates?.length)).map(d => [`${d.roleId}|${d.shiftTypeId}`, d])).values()]
@@ -122,7 +123,7 @@ export function Staffing() {
       </div>
       <div className="card row">
         <span>Add a need:</span>
-        <select value={addRole} onChange={e => setAddRole(e.target.value)}><option value="">Place…</option>{roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
+        <select value={addRole} onChange={e => setAddRole(e.target.value)}><option value="">Place…</option>{roles.map(r => <option key={r.id} value={r.id}>{placeName(r)}</option>)}</select>
         <select value={addShift} onChange={e => setAddShift(e.target.value)}><option value="">Shift…</option>{shiftTypes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
         <button onClick={addRow} disabled={!addRole || !addShift}>Add row</button>
       </div>
@@ -164,7 +165,7 @@ function OneOffs({ oneOffs, roleName, shiftName }: { oneOffs: Demand[]; roleName
       )}
       <div className="row">
         <input type="date" value={date} onChange={e => setDate(e.target.value)} />
-        <select value={role} onChange={e => setRole(e.target.value)}><option value="">Place…</option>{ws.profile.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
+        <select value={role} onChange={e => setRole(e.target.value)}><option value="">Place…</option>{ws.profile.roles.map(r => <option key={r.id} value={r.id}>{placeName(r)}</option>)}</select>
         <select value={shift} onChange={e => setShift(e.target.value)}><option value="">Shift…</option>{ws.profile.shiftTypes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
         <label className="row small muted">min <input type="number" min={0} value={min} onChange={e => setMin(Math.max(0, Number(e.target.value)))} /></label>
         <label className="row small muted">max <input type="number" min={0} value={max} onChange={e => setMax(Math.max(0, Number(e.target.value)))} /></label>

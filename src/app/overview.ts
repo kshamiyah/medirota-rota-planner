@@ -5,6 +5,7 @@ import { validate } from '../engine/validate';
 import type { Assignment, ISODate, Profile, RotaProblem } from '../engine/types';
 import { describeRule } from './rules/sentence';
 import { placeCode } from './components/codes';
+import { placeName } from './placeName';
 
 export function sessionFor(activity: string | undefined, profile?: Profile, settings?: import('./sessions').SessionsSettings) {
   if (!activity || activity.endsWith('[Removed]') || activity.includes('…') || activity.includes('&hellip;')) return undefined;
@@ -12,7 +13,7 @@ export function sessionFor(activity: string | undefined, profile?: Profile, sett
   const parentId = place?.parentId ?? place?.id;
   const type = settings?.types.find(item => !!parentId && item.placeIds.includes(parentId));
   if (type) return { ...type, code: placeCode(place, profile?.roles ?? []) };
-  return place ? { id: `unmapped-${place.id}`, name: place.name, colour: 8, kind: 'day' as const, placeIds: [parentId ?? place.id], code: placeCode(place, profile?.roles ?? []) } : undefined;
+  return place ? { id: `unmapped-${place.id}`, name: placeName(place), colour: 8, kind: 'day' as const, placeIds: [parentId ?? place.id], code: placeCode(place, profile?.roles ?? []) } : undefined;
 }
 
 export function overviewRange(today: ISODate, offsetWeeks = 0) {

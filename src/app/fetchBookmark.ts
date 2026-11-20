@@ -99,3 +99,13 @@ export function isFetchBundle(value: unknown): value is FetchBundle {
   return (bundle.version === 1 || bundle.version === 2) && Array.isArray(bundle.weeks) && bundle.weeks.length <= MAX_FETCH_WEEKS && bundle.weeks.every(w => typeof w.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(w.start) && (typeof w.html === 'string' || typeof w.error === 'string') && (w.activityHtml === undefined || typeof w.activityHtml === 'string'));
 }
 export type ParsedFetchedWeek = { start: string; person?: PersonWeek; activity?: import('./medirota').ActivityWeek; noRota?: boolean; error?: string };
+
+/** Empty week for the default scan: HTTP 200 with no rota/people, or HTTP 404 (unpublished). 5xx is not empty. */
+export function fetchedWeekIsEmpty(status: number, hasPerson: boolean): boolean {
+  return !hasPerson && (status === 200 || status === 404);
+}
+
+/** Stop the default forward scan only after two parsed empty pages with weeks still queued. */
+export function stopAfterTwoEmptyWeeks(weeks: ParsedFetchedWeek[], expected: number): boolean {
+  return weeks.length >= 2 && expected > weeks.length && weeks.slice(-2).every(week => week.noRota === true);
+}

@@ -4,6 +4,7 @@ import type { ISODate, Staff } from '../engine/types';
 import { formatDateLong } from './components/ui';
 
 export interface SwapFormInputs {
+  payBackOnOwnLeave?: boolean;
   staffId: string;
   leaveDates: ISODate[];
   leaveType: 'annual' | 'study';
@@ -167,7 +168,7 @@ function sameValues(left: string[], right: string[]): boolean {
 }
 
 export function sameSwapFormInputs(left: SwapFormInputs, right: SwapFormInputs): boolean {
-  return left.staffId === right.staffId && left.leaveType === right.leaveType &&
+  return !!left.payBackOnOwnLeave === !!right.payBackOnOwnLeave && left.staffId === right.staffId && left.leaveType === right.leaveType &&
     left.includeNormalDays === right.includeNormalDays && left.askMode === right.askMode &&
     left.returnPattern === right.returnPattern && left.returnDayType === right.returnDayType &&
     JSON.stringify(left.returnWindow) === JSON.stringify(right.returnWindow) &&

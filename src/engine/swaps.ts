@@ -91,6 +91,7 @@ export function detectPatterns(snapshot: RotaSnapshot): PatternFlag[] {
 }
 
 export interface SwapRequest {
+  payBackOnOwnLeave?: boolean;
   staffId: string;
   leaveDates: ISODate[];
   leaveType: 'annual' | 'study';
@@ -163,6 +164,7 @@ export interface SwapAlert {
 }
 
 export interface SwapPlan {
+  usesOwnLeave?: ISODate[];
   chains: SwapChain[];
   people: number;
   shiftsMoved: number;
@@ -423,7 +425,7 @@ function makeValidationContext(profile: Profile, snapshot: RotaSnapshot, setting
   for (const [staffId, days] of Object.entries(snapshot.days)) for (const [date, day] of Object.entries(days)) {
     if (!importedDateSet.has(date)) continue;
     if (day.status === 'zero') unavailable.push({ staffId, date, kind: 'nonWorking', reason: 'Zero Day' });
-    else if (day.status === 'leave') unavailable.push({ staffId, date, kind: 'leave', reason: 'Leave' });
+    else if (day.status === 'leave' && !(request.payBackOnOwnLeave && staffId === request.staffId && !request.leaveDates.includes(date))) unavailable.push({ staffId, date, kind: 'leave', reason: 'Leave' });
     else if (day.status === 'training') unavailable.push({ staffId, date, kind: 'other', reason: 'Training' });
     else if (day.status === 'notAvailable') unavailable.push({ staffId, date, kind: 'other', reason: 'Not available' });
 
@@ -439,7 +441,7 @@ function makeValidationContext(profile: Profile, snapshot: RotaSnapshot, setting
       workingDates.set(date, set);
     }
   }
-  if (snapshot.unavailability?.length) unavailable.push(...snapshot.unavailability);
+  if (snapshot.unavailability?.length) unavailable.push(...snapshot.unavailability.filter(item => !(request.payBackOnOwnLeave && item.staffId === request.staffId && item.kind === 'leave' && !request.leaveDates.includes(item.date))));
 
   const mkRecord = (staffId: string, dates: ISODate[], kind: UnitKind, activity: string): UnitRecord | undefined => {
     const assignments = dates.map(date => descriptors.get(`${staffId}|${date}`)).filter((a): a is Assignment => !!a);
@@ -547,6 +549,7 @@ function offReason(staffId: string, unit: SwapUnit, snapshot: RotaSnapshot, sett
     if ((settings.regularDaysOff[staffId] ?? []).includes(weekday(date))) return 'This is a confirmed regular day off.';
     const day = snapshot.days[staffId]?.[date];
     if (day?.status === 'training' && allowTraining && request && staffId !== request.staffId && unit.kind === 'longDay') continue;
+    if (day?.status === 'leave' && request?.payBackOnOwnLeave && staffId === request.staffId) continue;
     if (day?.status === 'zero') {
       continue;
     }
@@ -1314,6 +1317,13 @@ export function findSwaps(profile: Profile, snapshot: RotaSnapshot, settings: Sw
       ...(packageResult.toArrange.length ? { toArrange: packageResult.toArrange } : {}),
       ...(preferChosen && planUsesChosen({ chains: picked }) ? { chosenPeople: true } : {}),
     };
+    if (request.payBackOnOwnLeave) {
+      const received = picked.flatMap(chain => chain.links.flatMap((link, index) =>
+        chain.links[(index + 1) % chain.links.length].staffId === request.staffId && !(chain.sameDay && index === 1) ? link.gives.dates : []));
+      received.push(...packageResult.movedShifts.filter(move => move.toStaffId === request.staffId).map(move => move.date));
+      const usesOwnLeave = [...new Set(received.filter(date => !request.leaveDates.includes(date) && (snapshot.days[request.staffId]?.[date]?.status === 'leave' || snapshot.unavailability?.some(item => item.staffId === request.staffId && item.date === date && item.kind === 'leave'))))].sort();
+      if (usesOwnLeave.length) plan.usesOwnLeave = usesOwnLeave;
+    }
     const blockLength = blockLengthForPlan(plan, request);
     if (blockLength) {
       plan.blockLength = blockLength;
